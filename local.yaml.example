@@ -1,0 +1,27 @@
+# Machine-specific overrides, merged over configs/*.yaml at load time.
+# Copy to <project root>/local.yaml and edit. local.yaml is gitignored —
+# keep machine-specific paths here, never in configs/.
+
+# nuScenes mini/trainval root (contains samples/ sweeps/ maps/ v1.0-*)
+dataset:
+  root: /home/shuai/dataset/yiming_ODD/nuScenes
+
+# Extracted 3D asset corpora (3DRealCar crops + Argoverse2 object clouds)
+assets:
+  root: /home/shuai/dataset/3D-assets
+  realcar_dir: realcar_assets          # relative to assets.root
+  realcar_manifest: realcar_assets_manifest.json
+  av2_dir: av2_assets/_merged          # merged per-track npz + manifest.json
+  av2_scene_dir: av2_assets            # per-scene dirs, holds view/<CAT>_<id>.png
+
+# Generated asset library (canonical npz + assets_manifest.json)
+library:
+  path: data/library
+
+# Sibling read-only dependency: the nusc-inject repo (geometric injection)
+inject_nusc:
+  root: /home/shuai/projects/nusc-inject
+
+# Outputs
+output_dir: data/outputs
+export_dir: data/exports

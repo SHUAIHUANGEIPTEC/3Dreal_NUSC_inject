@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "3dreal-inject"
+version = "0.1.0"
+description = "Inject real extracted 3D assets (3DRealCar scans, Argoverse2 object clouds) into nuScenes via Gaussian splatting + diffusion realism"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26",
+    "trimesh>=4.0",
+    "opencv-python>=4.8",
+    "scipy>=1.11",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+inject = ["nuscenes-devkit>=1.2"]
+dev = ["pytest>=8.0", "ruff>=0.5", "pyflakes>=3.0"]
+docs = ["matplotlib>=3.8", "pillow>=10.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: needs the nuScenes dataset or the sibling nusc-inject repo (auto-skipped when absent)",
+]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["realinject"]

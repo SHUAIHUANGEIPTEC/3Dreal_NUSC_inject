@@ -1,0 +1,18 @@
+# Base config: portable defaults only. Machine-specific paths live in
+# <project root>/local.yaml (gitignored, template in local.yaml.example).
+
+dataset:
+  root: ${NUSCENES_ROOT}     # overridden by local.yaml
+  version: v1.0-mini
+  lidar_channel: LIDAR_TOP
+  cam_channels: [CAM_FRONT, CAM_FRONT_LEFT, CAM_FRONT_RIGHT,
+                 CAM_BACK, CAM_BACK_LEFT, CAM_BACK_RIGHT]
+
+inject_nusc:
+  root: ../nusc-inject        # read-only sibling dependency (overridden by local.yaml)
+
+library:
+  path: data/library
+
+output_dir: data/outputs
+export_dir: data/exports

@@ -1,0 +1,23 @@
+# Machine-specific
+local.yaml
+
+# Generated data: canonical assets, manifests, injection outputs, exports, videos
+data/
+weights/
+third_party/
+
+# Raw figures only; curated docs/figures/*.png are committed
+docs/figures/raw/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+.venv/
+
+# OS
+.DS_Store

@@ -1,0 +1,1 @@
+"""Gaussian asset representation."""
