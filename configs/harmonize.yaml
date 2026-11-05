@@ -1,0 +1,39 @@
+# CPU realism harmonization of a Gaussian-injection batch.
+# Machine paths come from local.yaml; batch dir = output_dir/<run_id>.
+
+dataset:
+  root: ${NUSCENES_ROOT}          # overridden by local.yaml
+  version: v1.0-mini
+  scene: scene-0061
+
+inject_nusc:
+  root: ../nusc-inject            # read-only sibling (overridden by local.yaml)
+
+output_dir: data/outputs
+
+injection:
+  batch_dir: data/outputs/gs01    # overridden by --run-id / --batch-dir
+
+cam_channels: [CAM_FRONT, CAM_FRONT_LEFT, CAM_FRONT_RIGHT,
+               CAM_BACK, CAM_BACK_LEFT, CAM_BACK_RIGHT]
+
+harmonize:
+  refiner: cpu                    # none | cpu | sd_inpaint(GPU) | magicdrive(GPU)
+  alpha_threshold: 0.05           # must match the composite cfg
+  depth_margin_m: 0.5
+  ring_inner_px: 2
+  ring_outer_px: 12
+  smooth_window: 11               # temporal moving-average window (anti-flicker)
+  lab_channels: [L]               # exposure only; a/b chroma = object identity
+  sigma_clip: [0.7, 1.5]
+  poisson_enabled: false
+  poisson_pad: 32
+  edge_band_enabled: true
+  edge_band_px: 4
+  noise_enabled: true
+  unsharp_amount: 0.3
+  shadow_enabled: true
+  shadow_strength: 0.55
+  shadow_blur: 15
+  shadow_dx_frac: 0.10
+  shadow_dy_frac: 0.13

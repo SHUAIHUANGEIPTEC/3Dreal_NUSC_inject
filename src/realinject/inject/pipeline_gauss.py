@@ -248,6 +248,8 @@ def run_sample(cfg: dict, meta, sample_index: int, objects: list,
     }
     spec = annotation.build_sample_spec(sample, gts, lr, files,
                                         track_keys=track_keys)
+    with open(out_dir / "spec.json", "w") as f:
+        json.dump(spec, f, indent=2)
     return {"status": "ok", "sample": sample, "gts": gts, "lidar_result": lr,
             "cam_result": cam_result, "per_cam": per_cam, "report": report,
             "spec": spec, "out_dir": out_dir, "dropped": dropped}
