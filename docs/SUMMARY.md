@@ -54,6 +54,14 @@ LiDAR 回波（红点落在目标上，跨模态一致）。*
 - 复用：`anchor`（单一真值）/ `lidar_channel`（range-image 双向遮挡）/ `occluders` /
   `validate` / `annotation`（标准导出）——全部只读 import，上游零改动
 
+**AV2 非车类注入演示**（`--assets av2/DOG_03ce7747,av2/STROLLER_e55913c8`）：
+
+![AV2 注入](figures/fig_av2_inject.png)
+
+*scene-0061 f000：补全后的 DOG 闭合代理 + 原始半壳婴儿车注入；5 帧 all_pass，
+10 条新标注，类别 `human.pedestrian.animal`（OOD 新类）+ `human.pedestrian.stroller`，
+devkit verify ok。和谐化在 4 路相机上改善曝光（AV2 资产被更多相机拍到）。*
+
 ## 5. 和谐化与视频（P4）
 
 ![和谐化 A/B](figures/fig_harmonize_ab.png)

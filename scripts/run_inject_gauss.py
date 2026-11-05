@@ -29,6 +29,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--samples", type=int, default=None,
                     help="max frames per scene (default: whole scene)")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--assets", default=None,
+                    help="comma-separated asset_ids to place "
+                         "(e.g. av2/DOG_03ce7747,av2/STROLLER_e55913c8)")
     ap.add_argument("--skip-export", action="store_true")
     args = ap.parse_args(argv)
 
@@ -58,11 +61,24 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     lib = AssetLibrary.load(manifest)
     records = lib.passed()
+    if args.assets:
+        wanted = {a.strip() for a in args.assets.split(",") if a.strip()}
+        records = [r for r in records if r.asset_id in wanted]
+        missing = wanted - {r.asset_id for r in records}
+        if missing:
+            print(f"FATAL: asset_ids not in the passed library: {sorted(missing)}",
+                  file=sys.stderr)
+            return 2
+        if not records:
+            print("FATAL: --assets matched no passed records", file=sys.stderr)
+            return 2
     if not records:
         print("FATAL: no passed assets in the library", file=sys.stderr)
         return 2
-    log.info("library: %d passed assets (%d kinds)", len(records),
-             len({r.kind for r in records}))
+    log.info("library: %d passed assets (%d kinds)%s", len(records),
+             len({r.kind for r in records}),
+             f" (filtered: {sorted({r.asset_id for r in records})})"
+             if args.assets else "")
 
     batch_dir = Path(str(cfg.get("output_dir", "data/outputs"))) / run_id
     specs, summary = batch.run_tracking(

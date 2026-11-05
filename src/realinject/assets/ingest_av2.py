@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
+
 from . import normalize, quality
 from .complete_runner import completion_artifact
 from .manifest import AssetRecord
@@ -121,6 +123,13 @@ def ingest_av2(assets_root: str | Path, library_root: str | Path,
                      "pts_per_m2": cstats.get("pts_per_m2")}
         passed, reasons = quality.gate_av2(entry_for_gate, cfg.get("gates"))
         scene_dir = _find_scene_dir(scene_root, npz_name)
+
+        # the annotation box must bound the RENDERED geometry (cloud extent),
+        # which exceeds the cuboid for half-shells and hull proxies — otherwise
+        # the projected box cannot enclose the splat silhouette
+        extent = np.asarray(stats["cloud_extent"], dtype=float)
+        box = np.asarray(stats["dims_lwh_m"], dtype=float)
+        dims_lwh = tuple(float(v) for v in np.maximum(box, extent))
         view = (scene_dir / "view" / f"{cat}_{short}.png") if scene_dir else None
         conditioning = {}
         if view is not None and view.exists():
@@ -132,7 +141,7 @@ def ingest_av2(assets_root: str | Path, library_root: str | Path,
             source_path=str(npz_path.relative_to(assets_root)),
             canonical_path=canonical_rel,
             category=AV2_CATEGORY_MAP.get(cat, FALLBACK_CATEGORY),
-            dims_lwh_m=stats["dims_lwh_m"],
+            dims_lwh_m=dims_lwh,
             raw_bbox_min=stats["raw_bbox_min"],
             raw_bbox_size=stats["raw_bbox_size"],
             quality={

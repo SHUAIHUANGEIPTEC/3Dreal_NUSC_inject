@@ -70,13 +70,21 @@ def plan_tracks(cfg: dict, scene_name: str, n_frames: int,
     if not records:
         raise ValueError("no passed assets in the library to place")
 
+    # deal records without replacement when possible so a small demo batch
+    # (e.g. --assets dog,stroller) actually uses every requested asset
+    if n_tracks <= len(records):
+        deal = [records[int(i)] for i in rng.permutation(len(records))[:n_tracks]]
+    else:
+        deal = [records[int(rng.integers(0, len(records)))]
+                for _ in range(n_tracks)]
+
     tracks = []
     for i in range(n_tracks):
         length = int(rng.integers(lo, hi + 1))
         length = max(1, min(length, n_frames))
         max_start = n_frames - length
         start = int(rng.integers(0, max_start + 1)) if max_start > 0 else 0
-        record = records[int(rng.integers(0, len(records)))]
+        record = deal[i]
         model_cfg = model_cfg_for(record, library_root)
         one = plan_one(cfg, rng, model_cfg, overrides)
         tracks.append({
