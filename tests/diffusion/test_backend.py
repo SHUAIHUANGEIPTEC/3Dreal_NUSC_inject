@@ -31,10 +31,11 @@ def test_write_package_schema(tmp_path):
 
 
 def test_write_package_copies_file_inputs(tmp_path):
-    src = tmp_path / "ref.png"
+    # keys ARE the target filenames inside inputs/ (GPU drivers rely on them)
+    src = tmp_path / "_ref_src.jpg"
     src.write_bytes(b"\x89PNG fake")
     pkg = write_package(tmp_path / "p2", backend="x", role="realism",
-                        command="true", inputs={"ref": src})
+                        command="true", inputs={"ref.png": src})
     assert (pkg.path / "inputs" / "ref.png").read_bytes() == b"\x89PNG fake"
 
 
