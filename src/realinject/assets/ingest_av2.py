@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from . import normalize, quality
+from .complete_runner import completion_artifact
 from .manifest import AssetRecord
 
 #: AV2 category -> nuScenes category used in the annotation export.
@@ -91,7 +92,34 @@ def ingest_av2(assets_root: str | Path, library_root: str | Path,
             ))
             continue
 
-        passed, reasons = quality.gate_av2(entry, cfg.get("gates"))
+        # route-D completion (mirror + closed proxy): gates re-evaluate on the
+        # proxy's full-coverage stats instead of the original half-shell
+        comp = completion_artifact(library_root, "av2", f"{cat}_{short}")
+        entry_for_gate = dict(entry)
+        canonical_rel = str(Path(stats["canonical_path"]).relative_to(library_root))
+        completion = {"status": "none", "candidate": quality.completion_candidate(
+            entry, cfg.get("gates"))}
+        if comp:
+            canonical_rel = comp["canonical"]
+            cstats = comp.get("stats", {})
+            completion = {"status": comp["status"], "method": comp.get("method"),
+                          "candidate": completion["candidate"],
+                          "completed_at": comp.get("completed_at")}
+            entry_for_gate = {
+                **entry,
+                "n": int(cstats.get("n_proxy_samples", entry.get("n", 0))),
+                "az_span_deg": float(cstats.get("az_span_deg",
+                                                entry.get("az_span_deg", 0))),
+                "pts_per_m2": float(cstats.get("pts_per_m2",
+                                               entry.get("pts_per_m2", 0))),
+                "coverage": 1.0,  # closed proxy: full angular coverage
+            }
+            stats = {**stats,
+                     "n_points": int(cstats.get("n_proxy_samples",
+                                                stats["n_points"])),
+                     "az_span_deg": cstats.get("az_span_deg"),
+                     "pts_per_m2": cstats.get("pts_per_m2")}
+        passed, reasons = quality.gate_av2(entry_for_gate, cfg.get("gates"))
         scene_dir = _find_scene_dir(scene_root, npz_name)
         view = (scene_dir / "view" / f"{cat}_{short}.png") if scene_dir else None
         conditioning = {}
@@ -102,7 +130,7 @@ def ingest_av2(assets_root: str | Path, library_root: str | Path,
             asset_id=asset_id,
             kind="av2_cloud",
             source_path=str(npz_path.relative_to(assets_root)),
-            canonical_path=str(Path(stats["canonical_path"]).relative_to(library_root)),
+            canonical_path=canonical_rel,
             category=AV2_CATEGORY_MAP.get(cat, FALLBACK_CATEGORY),
             dims_lwh_m=stats["dims_lwh_m"],
             raw_bbox_min=stats["raw_bbox_min"],
@@ -110,18 +138,19 @@ def ingest_av2(assets_root: str | Path, library_root: str | Path,
             quality={
                 "passed": passed,
                 "reasons": reasons,
-                "n_points": stats["n_points"],
+                # gate-evaluated values (proxy stats when completed, so the
+                # recorded quality always matches what the gate saw)
+                "n_points": int(entry_for_gate.get("n", stats["n_points"])),
                 "cloud_extent": stats["cloud_extent"],
-                "az_span_deg": entry.get("az_span_deg"),
-                "pts_per_m2": entry.get("pts_per_m2"),
+                "az_span_deg": float(entry_for_gate.get(
+                    "az_span_deg", entry.get("az_span_deg", 0))),
+                "pts_per_m2": float(entry_for_gate.get(
+                    "pts_per_m2", entry.get("pts_per_m2", 0))),
                 "coverage": entry.get("coverage"),
                 "frames": entry.get("frames"),
                 "silhouette": entry.get("silhouette"),
             },
-            completion={
-                "status": "none",
-                "candidate": quality.completion_candidate(entry, cfg.get("gates")),
-            },
+            completion=completion,
             conditioning=conditioning,
             tracks=[{
                 "track": entry.get("track"),

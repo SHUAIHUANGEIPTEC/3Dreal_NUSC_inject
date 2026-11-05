@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 from . import normalize, quality
+from .complete_runner import completion_artifact
 from .manifest import AssetRecord
 
 CATEGORY = "vehicle.car"
@@ -61,11 +62,28 @@ def ingest_realcar(assets_root: str | Path, library_root: str | Path,
         passed, reasons = quality.gate_realcar(
             stats["dims_lwh_m"], stats["texture_std"], entry, cfg.get("gates"))
         meta = _read_meta(scene_dir / "meta.json")
+
+        # route-D completion (fan hole fill): swap in the completed mesh and
+        # refresh the hole statistics the report tracks
+        comp = completion_artifact(library_root, "realcar", scene)
+        canonical_rel = str(Path(stats["canonical_path"]).relative_to(library_root))
+        completion = {"status": "none"}
+        if comp:
+            canonical_rel = comp["canonical"]
+            completion = {"status": comp["status"], "method": comp.get("method"),
+                          "completed_at": comp.get("completed_at")}
+            cstats = comp.get("stats", {})
+            stats = {**stats,
+                     "boundary_edges": int(cstats.get(
+                         "boundary_edges_after", stats["boundary_edges"])),
+                     "watertight": bool(cstats.get("watertight_after",
+                                                   stats["watertight"])),
+                     "holes_filled": cstats.get("filled", 0)}
         records.append(AssetRecord(
             asset_id=f"realcar/{scene}",
             kind="realcar_mesh",
             source_path=str(scene_dir.relative_to(assets_root)),
-            canonical_path=str(Path(stats["canonical_path"]).relative_to(library_root)),
+            canonical_path=canonical_rel,
             category=CATEGORY,
             dims_lwh_m=stats["dims_lwh_m"],
             raw_bbox_min=stats["raw_bbox_min"],
@@ -84,7 +102,7 @@ def ingest_realcar(assets_root: str | Path, library_root: str | Path,
                 "meta_dims": meta.get("dims"),
                 "manifest_lwh": [entry.get("L"), entry.get("W"), entry.get("H")] if entry else None,
             },
-            completion={"status": "none"},
+            completion=completion,
             conditioning={"texture": stats["texture_path"]},
             tracks=[],
         ))
