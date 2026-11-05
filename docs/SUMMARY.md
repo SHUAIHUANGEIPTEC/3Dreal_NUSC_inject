@@ -20,7 +20,11 @@
 
 ## 4. 注入与导出（P3）
 
-（待补：注入前后对比、跨模态一致性图、devkit 加载验证截图）
+![注入前后对比](figures/fig_inject_before_after.png)
+
+*scene-0061 f004：原始帧 → 高斯前景（两辆 realcar 扫描资产，车顶破洞如实呈现）→
+合成 → 合成 + 注入 LiDAR 回波（红点落在目标上，跨模态一致）。5 帧全部
+`validation all_pass=True`，导出 9 条新标注，devkit `verify ok`。*
 
 ## 5. 照片级 4D 演示（P4/P5）
 
@@ -30,6 +34,6 @@
 
 | 阶段 | 指标 | 结果 |
 |---|---|---|
-| P1 | realcar A 档通过数 / AV2 通过数 | 运行 `build_asset_library.py` 后填写 |
-| P2 | 解析球 α 误差 / 单资产渲染耗时 | 待测 |
-| P3 | 注入样本 all_pass / devkit 导出校验 | 待测 |
+| P1 | realcar A 档通过数 / AV2 通过数 | **158 / 12**（223 条记录，170 通过） |
+| P2 | 解析球 α 误差 / 单资产渲染耗时 | <15% / **1.13 s**（120k 高斯 @1600×900） |
+| P3 | 注入样本 all_pass / devkit 导出校验 | **5/5 帧 all_pass** / **verify ok（9 条新标注）** |

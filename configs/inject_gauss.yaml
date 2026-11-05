@@ -1,0 +1,108 @@
+# Single-scene Gaussian injection + standard nuScenes export.
+# Machine paths come from local.yaml (dataset.root / inject_nusc.root).
+
+run_id: gs01
+
+dataset:
+  root: ${NUSCENES_ROOT}          # overridden by local.yaml
+  version: v1.0-mini
+  scene: scene-0061
+  lidar_channel: LIDAR_TOP
+  cam_channels: [CAM_FRONT, CAM_FRONT_LEFT, CAM_FRONT_RIGHT,
+                 CAM_BACK, CAM_BACK_LEFT, CAM_BACK_RIGHT]
+
+library:
+  path: data/library
+
+inject_nusc:
+  root: ../nusc-inject            # read-only sibling (overridden by local.yaml)
+
+mesh_points:
+  n_dense: 60000                  # lidar payload sample cap per object
+  n_lidar: 8000                   # per-object cap after occlusion
+
+lidar_channel:
+  range_image:
+    H: 512
+    W: 2048
+    elev_min_deg: -30.67
+    elev_max_deg: 10.67
+  range_max_m: 80.0
+  out_format: n5
+
+camera_channel:
+  frustum_margin_px: 40
+
+composite:
+  alpha_threshold: 0.05
+  depth_margin_m: 0.2
+  depth_margin_rel: 0.02
+
+scene_occluders:
+  enabled: true
+  n_per_face: 64
+  scale: 1.0
+  max_dist_m: 60.0
+  min_visibility: 1
+  spacing_m: 0.15
+  scene_gap_fill_deg: 0.7
+
+# upstream validate.run reads this (blender self-check is a no-op on the
+# gaussian path: cam_result.max_pixel_err = 0)
+blender:
+  selfcheck_max_pixel_err: 2.0
+
+validation:
+  min_coverage: 0.85
+  min_bbox_iou: 0.5
+  min_alpha_px: 500
+  require_num_lidar_pts_gt0: true
+  min_size_m: 0.05
+  max_size_m: 40.0
+  gauss_depth_vs_lidar_m: 0.5
+  box_encloses_mask: 0.95
+
+annotation:
+  category_name: movable_object.anomaly   # per-object category overrides this
+  attribute_name: vehicle.moving
+  visibility_token: "4"
+
+# defaults for anchor.build_gt (per-object model_cfg/placement_cfg override)
+model:
+  path: ""
+  scale: 1.0
+  albedo: 0.55
+  intensity_gain_k: 200.0
+  category: movable_object.anomaly
+
+placement:
+  strategy: ego_offset
+  offset_in_ego: [12.0, 0.0, 0.0]
+  yaw_in_ego_deg: 0.0
+  pitch_in_ego_deg: 0.0
+  roll_in_ego_deg: 0.0
+  ground:
+    search_radius_m: 4.0
+    z_percentile: 15.0
+
+objects:
+  seed: 42
+  count: 2
+  tracking:
+    count: 2
+    length: [4, 8]
+  ground:
+    search_radius_m: 4.0
+    z_percentile: 15.0
+
+gaussian:
+  render:
+    backend: cpu
+  lidar:
+    n_dense: 60000
+    normal_knn: 16
+    seed: 0
+    pts_per_px_nominal: 0.02
+
+output_dir: data/outputs
+export_dir: data/exports
