@@ -28,7 +28,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import paths  # noqa: E402
+from realinject import paths  # noqa: E402
 
 CKPT = "model.ckpt"
 DUST3R = "DUSt3R_ViTLarge_BaseDecoder_512_dpt.pth"

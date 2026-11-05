@@ -24,7 +24,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import paths  # noqa: E402
+from realinject import paths  # noqa: E402
 
 STAG_RUN = ROOT / "third_party" / "stag_run"
 CKPT_SPARSE = "model_sparse.ckpt"

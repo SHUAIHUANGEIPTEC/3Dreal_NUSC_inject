@@ -62,7 +62,9 @@ def write_package(out_dir: str | Path, *, backend: str, role: str,
                   command: str, inputs: dict, meta: dict | None = None) -> Package:
     """Materialize a condition package.
 
-    inputs: {name: Path (copied) | np.ndarray (saved as .npy) | str (written)}
+    inputs: {filename: Path (copied) | np.ndarray (saved) | str (written text)}
+            — keys ARE the target filenames inside inputs/ (e.g. "ref.png"),
+            so GPU drivers can rely on stable names.
     meta:   extra provenance merged into backend.json.
     """
     out = Path(out_dir)
@@ -71,13 +73,14 @@ def write_package(out_dir: str | Path, *, backend: str, role: str,
     written = {}
     for name, value in inputs.items():
         if isinstance(value, np.ndarray):
-            p = out / "inputs" / f"{name}.npy"
+            fname = name if name.endswith(".npy") else f"{name}.npy"
+            p = out / "inputs" / fname
             np.save(p, value)
-            written[name] = str(p.relative_to(out))
+            written[fname] = str(p.relative_to(out))
         elif isinstance(value, Path):
             if not value.exists():
                 raise FileNotFoundError(f"input {name} missing: {value}")
-            dst = out / "inputs" / value.name
+            dst = out / "inputs" / name
             if value.resolve() != dst.resolve():
                 dst.write_bytes(value.read_bytes())
             written[name] = str(dst.relative_to(out))

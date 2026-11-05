@@ -53,7 +53,7 @@ class SDInpaintBackend:
         assert_gauss_trace(meta)
         pkg = write_package(
             out, backend=self.name, role=self.role, command=cmd,
-            inputs={"composite": comp_p, "mask": mask_p}, meta=meta)
+            inputs={"composite.jpg": comp_p, "mask.png": mask_p}, meta=meta)
         comp_p.unlink(missing_ok=True)
         mask_p.unlink(missing_ok=True)
         return pkg

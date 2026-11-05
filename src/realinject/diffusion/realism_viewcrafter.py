@@ -76,7 +76,8 @@ class ViewCrafterBackend:
         assert_gauss_trace(meta)
         pkg = write_package(
             out, backend=self.name, role=self.role, command=cmd,
-            inputs={"ref": ref_path, "traj": _traj_text(preset)}, meta=meta)
+            inputs={"ref.png": ref_path, "traj.txt": _traj_text(preset)},
+            meta=meta)
         ref_path.unlink(missing_ok=True)
         return pkg
 

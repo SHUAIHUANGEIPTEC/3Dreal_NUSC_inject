@@ -162,7 +162,8 @@ class StagB1Backend:
         assert_gauss_trace(meta_out)
         pkg = write_package(
             out, backend=self.name, role=self.role, command=cmd,
-            inputs={"renderings": frames, "ref": ref_path}, meta=meta_out)
+            inputs={"renderings.npy": frames, "ref.png": ref_path},
+            meta=meta_out)
         ref_path.unlink(missing_ok=True)
         # preview of the raw conditioning sequence
         preview = (frames * 255).astype(np.uint8)
