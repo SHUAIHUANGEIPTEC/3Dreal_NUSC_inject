@@ -33,7 +33,7 @@ def check_file(path: Path) -> list[str]:
 
 
 def main() -> int:
-    files = [ROOT / "README.md"]
+    files = [ROOT / "README.md", ROOT / "RELEASE.md"]
     files += sorted((ROOT / "docs").glob("*.md")) if (ROOT / "docs").is_dir() else []
     errors: list[str] = []
     for f in files:

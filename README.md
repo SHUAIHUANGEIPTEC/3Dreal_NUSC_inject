@@ -53,6 +53,7 @@ tests/                CPU-only 单测（缺数据自动 skip）
 
 ## 文档
 
+- [发布说明 v0.1.0](RELEASE.md)
 - [图文工作总结](docs/SUMMARY.md)
 - [资产库：来源、规范化、质量门禁](docs/ASSETS.md)
 - [高斯渲染设计](docs/GAUSSIAN_RENDERING.md)
