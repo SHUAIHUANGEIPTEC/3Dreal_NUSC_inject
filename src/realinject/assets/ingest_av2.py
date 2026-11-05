@@ -38,12 +38,23 @@ def load_av2_manifest(av2_dir: str | Path) -> list[dict]:
 
 
 def _find_scene_dir(av2_scene_root: Path, npz_name: str) -> Path | None:
+    """Scene dir holding the track npz (``_merged`` is an aggregate, not a scene).
+
+    Prefers a scene that also carries the ``view/`` conditioning image.
+    """
     if not av2_scene_root.is_dir():
         return None
-    for scene_dir in av2_scene_root.iterdir():
-        if scene_dir.is_dir() and (scene_dir / npz_name).exists():
+    fallback = None
+    for scene_dir in sorted(av2_scene_root.iterdir()):
+        if not scene_dir.is_dir() or scene_dir.name == "_merged":
+            continue
+        if not (scene_dir / npz_name).exists():
+            continue
+        if (scene_dir / "view").is_dir():
             return scene_dir
-    return None
+        if fallback is None:
+            fallback = scene_dir
+    return fallback
 
 
 def ingest_av2(assets_root: str | Path, library_root: str | Path,
