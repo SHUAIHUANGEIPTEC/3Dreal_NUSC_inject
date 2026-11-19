@@ -12,9 +12,9 @@ are specific to the Gaussian path:
   point support;
 - ``box_encloses_mask``: >= 95% of mask pixels inside the projected 3D box
   AABB — catches axis swaps the bbox itself cannot see (symmetric boxes);
-- ``ground_contact``: object bbox bottom within ``ground_contact_max_m`` of
+- ``ground_contact``: object bbox bottom within ±``ground_contact_max_m`` of
   the robust local ground — catches placements floating on elevated clutter
-  (needs ``scene_pts``; skipped when not provided);
+  *or* sunk into it (needs ``scene_pts``; skipped when not provided);
 - ``multicam_overlap``: for pixels visible in >= 2 cameras, mask IoU > 0.6
   (informational; reported, not gated).
 """
@@ -187,8 +187,9 @@ def _ground_contact(cfg: dict, gts: list,
                     scene_pts: np.ndarray | None) -> dict:
     """Bbox bottom vs robust local ground, per object (lidar frame).
 
-    Floats > ground_contact_max_m fail: the classic bug is build_gt's fixed
-    percentile landing on elevated clutter (parked truck) so the object hovers.
+    |gap| > ground_contact_max_m fails: floats come from build_gt's fixed
+    percentile landing on elevated clutter (parked truck); sinks mean the
+    resnap drove the object through the road surface.
     """
     max_gap = float(cfg.get("validation", {}).get("ground_contact_max_m", 0.35))
     if scene_pts is None:
@@ -210,18 +211,19 @@ def _ground_contact(cfg: dict, gts: list,
         pts_l = ((corners * raw_size + raw_min) * scale) @ t_m2l[:3, :3].T \
             + t_m2l[:3, 3]
         bottom_z = float(pts_l[:, 2].min())
-        # ground under the box centre (same estimator as the resnap)
-        centre = pts_l.mean(axis=0)
+        # ground at the placement anchor (same xy as placement.resnap_ground)
+        off = gt["placement"]["offset_in_lidar_frame"]
         ground, _confident = _ground_estimate(
-            scene_pts, float(centre[0]), float(centre[1]),
+            scene_pts, float(off[0]), float(off[1]),
             radius_m=float(rc["radius_m"]), band_m=float(rc["band_m"]),
             seed_pct=float(rc["seed_pct"]), min_pts=int(rc["min_pts"]))
         gaps.append(bottom_z - ground)
     return {
         "max_gap_m": max_gap,
+        "min_gap_m": -max_gap,
         "gap_m": [round(g, 3) for g in gaps],
         "evaluable": True,
-        "pass": all(g <= max_gap for g in gaps),
+        "pass": all(-max_gap <= g <= max_gap for g in gaps),
     }
 
 

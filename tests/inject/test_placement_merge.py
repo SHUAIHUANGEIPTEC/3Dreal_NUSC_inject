@@ -186,7 +186,9 @@ def test_ground_contact_check_in_validate_ext():
         return {"T_model2lidar": t.reshape(-1).tolist(),
                 "T_model2global": t.reshape(-1).tolist(),
                 "raw_bbox_min": [0.0, 0.0, 0.0],
-                "raw_bbox_size": [4.9, 1.9, 1.5], "scale": 1.0}
+                "raw_bbox_size": [4.9, 1.9, 1.5], "scale": 1.0,
+                "placement": {"offset_in_lidar_frame": [0.0, 0.0,
+                                                        bottom_z_lidar]}}
 
     # seated: bbox bottom at road level passes
     seated = validate_ext._ground_contact(cfg, [_gt(-1.2)], pts)
@@ -195,6 +197,13 @@ def test_ground_contact_check_in_validate_ext():
     floating = validate_ext._ground_contact(cfg, [_gt(-0.2)], pts)
     assert floating["evaluable"] and not floating["pass"]
     assert floating["gap_m"][0] > 0.9
+    # sunk below the road fails too (two-sided budget)
+    sunk = validate_ext._ground_contact(cfg, [_gt(-1.7)], pts)
+    assert sunk["evaluable"] and not sunk["pass"]
+    assert sunk["gap_m"][0] < -0.35
+    # slight sink within the budget passes (measured worst case was -0.218)
+    slight = validate_ext._ground_contact(cfg, [_gt(-1.4)], pts)
+    assert slight["evaluable"] and slight["pass"]
     # no scene points -> not evaluable, not failing
     skipped = validate_ext._ground_contact(cfg, [_gt(-0.2)], None)
     assert not skipped["evaluable"] and skipped["pass"]
