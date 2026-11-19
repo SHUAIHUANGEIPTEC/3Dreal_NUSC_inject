@@ -53,11 +53,11 @@ def collect_cam_frames(batch_dir: Path, scene_name: str, cam: str,
 
 
 def run_session(batch_dir: Path, scene_name: str, cams: list[str],
-                cfg: dict, refiner, *, write_report: bool = True) -> dict:
-    """Two passes over every camera; writes refined/ + returns a report.
+                cfg: dict, refiner) -> dict:
+    """Two passes over every camera; writes refined/ + returns the report.
 
-    ``write_report=False`` skips the harmonize_report.json write so callers
-    looping multiple scenes can merge the per-scene reports and write once.
+    The harmonize_report.json write is not done here — callers that loop
+    several scenes should use :func:`run_scenes`, which merges and writes once.
     """
     batch_dir = Path(batch_dir)
     window = int(cfg.get("smooth_window", 5))
@@ -147,11 +147,21 @@ def run_session(batch_dir: Path, scene_name: str, cams: list[str],
             "n_params_smoothed": sum(p is not None for p in smoothed),
         }
 
-    if write_report:
-        report_path = batch_dir / "harmonize_report.json"
-        with open(report_path, "w") as f:
-            json.dump(report, f, indent=2)
     return report
+
+
+def run_scenes(batch_dir: Path, scenes: list[str], cams: list[str],
+               cfg: dict, refiner) -> dict:
+    """Run :func:`run_session` for every scene; merge reports; write once."""
+    batch_dir = Path(batch_dir)
+    merged: dict = {"scenes": {}, "refiner": getattr(refiner, "name", "?")}
+    for scene in scenes:
+        report = run_session(batch_dir, scene, cams, cfg, refiner)
+        merged["scenes"].update(report.get("scenes") or {})
+    report_path = batch_dir / "harmonize_report.json"
+    with open(report_path, "w") as f:
+        json.dump(merged, f, indent=2)
+    return merged
 
 
 def _mean(xs) -> float:

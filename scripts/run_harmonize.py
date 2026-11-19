@@ -42,7 +42,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.scene:
         cfg["dataset"]["scene"] = args.scene
 
-    from realinject.harmonize import get_refiner, run_session
+    from realinject.harmonize import get_refiner, run_scenes
 
     hcfg = cfg["harmonize"]
     refiner = get_refiner(args.refiner or hcfg.get("refiner", "cpu"), cfg=hcfg)
@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"[harmonize] batch={batch_dir} scene={scene} "
           f"refiner={refiner.name} cams={len(cams)}")
-    report = run_session(batch_dir, scene, cams, hcfg, refiner)
+    report = run_scenes(batch_dir, [scene], cams, hcfg, refiner)
 
     n_improved = 0
     for sc, per_cam in report["scenes"].items():
