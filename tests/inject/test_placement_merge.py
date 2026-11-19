@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from realinject.gauss.model import GaussianCloud, identity_quat
 from realinject.gauss.raster_cpu import render_gaussians
@@ -99,20 +98,12 @@ def test_merge_renders_nearest_wins():
     assert np.all(merged.depth[strong] < far.depth[strong] + 1e-6)
 
 
-def test_bridge_contract():
+def test_bridge_contract(inject_root):
     from realinject.inject import bridge
 
-    cfg = {"inject_nusc": {"root": str(_inject_root())}}
-    if not (_inject_root() / "src").is_dir():
-        pytest.skip("nusc-inject not available")
+    cfg = {"inject_nusc": {"root": str(inject_root)}}
     bridge.bootstrap(cfg)  # raises if the contract is broken
     bridge.assert_upstream_contract()
-
-
-def _inject_root():
-    from pathlib import Path
-
-    return Path(__file__).resolve().parents[2].parent / "nusc-inject"
 
 
 def _cluttered_scene():

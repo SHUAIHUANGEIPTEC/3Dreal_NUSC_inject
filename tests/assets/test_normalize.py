@@ -91,19 +91,21 @@ def test_canonicalize_av2_rejects_empty(tmp_path):
 
 @pytest.mark.integration
 def test_canonicalize_realcar_known_asset(assets_root, library_root):
-    scene = "2024_06_04_13_44_39"
-    asset_dir = assets_root / "realcar_assets" / scene
+    # fixture asset shipped in the 3D-assets corpus (manifest L/W/H 4.909 x
+    # 1.907 x 1.326); the previous reference scene dir never ships
+    asset = "cab__taxi_c7db4282"
+    asset_dir = assets_root / "realcar_assets" / asset
     if not asset_dir.exists():
         pytest.skip("reference asset not present")
     stats = normalize.canonicalize_realcar(
-        asset_dir, assets_root, library_root / "canonical" / "realcar" / f"{scene}.npz")
-    # verified: OBB is 4.945 x 1.945 x 1.28 (manifest L/W/H), not the inflated AABB
-    assert np.isclose(stats["dims_lwh_m"][0], 4.945, atol=0.05)
-    assert np.isclose(stats["dims_lwh_m"][1], 1.945, atol=0.05)
-    assert np.isclose(stats["dims_lwh_m"][2], 1.28, atol=0.02)
-    assert stats["n_verts"] == 31879  # UV-seam merge: 34754 -> 31879
-    assert stats["boundary_edges"] > 0  # roof/glass holes are real
+        asset_dir, assets_root, library_root / "canonical" / "realcar" / f"{asset}.npz")
+    # verified by measurement: OBB matches manifest L/W/H, not the inflated AABB
+    assert np.isclose(stats["dims_lwh_m"][0], 4.909, atol=0.05)
+    assert np.isclose(stats["dims_lwh_m"][1], 1.907, atol=0.05)
+    assert np.isclose(stats["dims_lwh_m"][2], 1.326, atol=0.02)
+    assert stats["n_verts"] == 24779
+    assert stats["boundary_edges"] > 0  # single boundary edge, roof/glass open
     assert stats["texture_std"] > 5
-    canon = normalize.load_canonical(library_root / "canonical" / "realcar" / f"{scene}.npz")
+    canon = normalize.load_canonical(library_root / "canonical" / "realcar" / f"{asset}.npz")
     assert float(canon["verts"].min()) >= -1e-4  # bbox min at origin
     assert canon["colors"].shape[0] == canon["verts"].shape[0]
