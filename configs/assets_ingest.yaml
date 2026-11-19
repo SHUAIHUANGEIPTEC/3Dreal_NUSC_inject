@@ -18,7 +18,7 @@ gates:
     w_range: [1.4, 2.6]
     h_range: [1.0, 2.0]
     min_texture_std: 5.0
-    max_texture_black_frac: 0.05
+    max_texture_black_frac: 0.05   # UV-sampled black-texel fraction gate; rebuild the library after changing
     bbox_manifest_tol: 0.2
   av2:
     min_points: 300
