@@ -107,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
         if not records:
             print("FATAL: --assets matched no passed records", file=sys.stderr)
             return 2
+    else:
+        # Default deal: only textured realcar meshes. av2_cloud records are
+        # sparse untextured half-shells (see quality gates); --assets can
+        # still request them explicitly.
+        records = [r for r in records if r.kind == "realcar_mesh"]
     if not records:
         print("FATAL: no passed assets in the library", file=sys.stderr)
         return 2
