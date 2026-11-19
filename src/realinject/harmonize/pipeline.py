@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+import zlib
 from pathlib import Path
 
 import cv2
@@ -45,7 +46,8 @@ def collect_cam_frames(batch_dir: Path, scene_name: str, cam: str,
         rec["ring"] = masks.ring_region(rec["target"], r_in, r_out)
         rec["feather"] = masks.feather_mask(rec["alpha"], rec["visible"])
         rec["frame_idx"] = _frame_sort(fd)
-        rec["seed"] = hash((scene_name, cam, fd.name)) % (2 ** 31)
+        rec["seed"] = zlib.crc32(
+            f"{scene_name}|{cam}|{fd.name}".encode()) % (2 ** 31)
         frames.append(rec)
     return frames
 
