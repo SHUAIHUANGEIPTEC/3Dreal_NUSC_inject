@@ -51,8 +51,12 @@ def collect_cam_frames(batch_dir: Path, scene_name: str, cam: str,
 
 
 def run_session(batch_dir: Path, scene_name: str, cams: list[str],
-                cfg: dict, refiner) -> dict:
-    """Two passes over every camera; writes refined/ + returns a report."""
+                cfg: dict, refiner, *, write_report: bool = True) -> dict:
+    """Two passes over every camera; writes refined/ + returns a report.
+
+    ``write_report=False`` skips the harmonize_report.json write so callers
+    looping multiple scenes can merge the per-scene reports and write once.
+    """
     batch_dir = Path(batch_dir)
     window = int(cfg.get("smooth_window", 5))
     report = {"scenes": {}, "refiner": getattr(refiner, "name", "?")}
@@ -141,9 +145,10 @@ def run_session(batch_dir: Path, scene_name: str, cams: list[str],
             "n_params_smoothed": sum(p is not None for p in smoothed),
         }
 
-    report_path = batch_dir / "harmonize_report.json"
-    with open(report_path, "w") as f:
-        json.dump(report, f, indent=2)
+    if write_report:
+        report_path = batch_dir / "harmonize_report.json"
+        with open(report_path, "w") as f:
+            json.dump(report, f, indent=2)
     return report
 
 

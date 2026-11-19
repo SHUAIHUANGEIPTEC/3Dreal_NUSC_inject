@@ -12,6 +12,7 @@ writes refined/<cam>.jpg + harmonize_report.json) -> export.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -35,8 +36,12 @@ def _run_harmonize(cfg: dict, batch_dir: Path, scenes: list[str],
     cams = cfg.get("cam_channels") or [
         "CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT",
         "CAM_BACK", "CAM_BACK_LEFT", "CAM_BACK_RIGHT"]
+    merged: dict = {"scenes": {}, "refiner": None}
     for scene in scenes:
-        report = run_session(batch_dir, scene, cams, hcfg, refiner)
+        report = run_session(batch_dir, scene, cams, hcfg, refiner,
+                             write_report=False)
+        merged["refiner"] = report.get("refiner", merged["refiner"])
+        merged["scenes"].update(report.get("scenes") or {})
         for cam, m in sorted((report.get("scenes") or {}).get(scene, {}).items()):
             log.info("  harmonize %s: dE(target,ring) %.1f -> %.1f, "
                      "dL %.1f -> %.1f", cam,
@@ -44,7 +49,9 @@ def _run_harmonize(cfg: dict, batch_dir: Path, scenes: list[str],
                      m.get("dE_target_ring_after", float("nan")),
                      m.get("lightness_gap_before", float("nan")),
                      m.get("lightness_gap_after", float("nan")))
-    log.info("harmonize: report at %s", batch_dir / "harmonize_report.json")
+    report_path = batch_dir / "harmonize_report.json"
+    report_path.write_text(json.dumps(merged, indent=2))
+    log.info("harmonize: report at %s", report_path)
 
 
 def main(argv: list[str] | None = None) -> int:
