@@ -80,24 +80,6 @@ annotation:
   attribute_name: vehicle.moving
   visibility_token: "4"
 
-# defaults for anchor.build_gt (per-object model_cfg/placement_cfg override)
-model:
-  path: ""
-  scale: 1.0
-  albedo: 0.55
-  intensity_gain_k: 200.0
-  category: movable_object.anomaly
-
-placement:
-  strategy: ego_offset
-  offset_in_ego: [12.0, 0.0, 0.0]
-  yaw_in_ego_deg: 0.0
-  pitch_in_ego_deg: 0.0
-  roll_in_ego_deg: 0.0
-  ground:
-    search_radius_m: 4.0
-    z_percentile: 15.0
-
 objects:
   seed: 42
   count: 2
