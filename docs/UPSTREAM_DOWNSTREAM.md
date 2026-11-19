@@ -44,7 +44,7 @@ python scripts/make_nusc_track_clouds.py --top-per-class 6
 
 # 3) 资产库（质量门禁 -> canonical npz + assets_manifest.json）
 python scripts/build_asset_library.py
-#    -> data/library: 13 records / 13 passed
+#    -> data/library: 13 records / 11 passed（黑率门禁拒 2 台：285af8e9 / 57e3a3a1）
 ```
 
 ## GPU（gsplat @ RTX 5090）
@@ -60,10 +60,14 @@ nvidia-smi 显存 337→1250 MiB、5 帧全管线 ~65 s（CPU 路径单帧曾达
 ```bash
 conda activate nusc-inject-ood
 
-# 单场景注入 + 标准 nuScenes 导出（GPU）
+# 单场景注入 + 标准 nuScenes 导出 + 和谐化（GPU，e2e 一条命令）
 python scripts/run_inject_gauss.py --run-id gs_e2e --scene scene-0061 --samples 5
 # -> 5 frames / 2 tracks / 9 annotations / devkit verify: ok
 #    data/exports/gs_e2e/
+#    export verify 通过后自动跑 P4 和谐化（覆盖/拒绝时不会跑）:
+#      data/outputs/gs_e2e/scene-0061/f00*/refined/<cam>.jpg + harmonize_report.json
+#    可选 --skip-harmonize 跳过；--skip-export 只跑 batch（也不和谐化）
+#    独立重跑和谐化: python scripts/run_harmonize.py --run-id gs_e2e --scene scene-0061
 
 # 卫生门禁（ruff + pyflakes + pytest + 硬路径 + docs）
 PATH=~/miniforge3/envs/nusc-inject-ood/bin:$PATH bash scripts/lint.sh   # ALL CLEAN
