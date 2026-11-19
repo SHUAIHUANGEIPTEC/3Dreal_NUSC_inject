@@ -6,8 +6,8 @@
     python scripts/run_inject_gauss.py --run-id gs01 --skip-export   # batch only
     python scripts/run_inject_gauss.py --run-id gs01 --skip-harmonize
 
-The e2e flow is batch (inject) -> harmonize (exposure match / contact shadow,
-writes refined/<cam>.jpg + harmonize_report.json) -> export.
+The e2e flow is batch (inject) -> export (verify) -> harmonize (exposure
+match / contact shadow, writes refined/<cam>.jpg + harmonize_report.json).
 """
 from __future__ import annotations
 
@@ -130,10 +130,6 @@ def main(argv: list[str] | None = None) -> int:
     for length, n in sorted(summary.get("track_length_hist", {}).items()):
         log.info("  %d track(s) with %s annotated frames", n, length)
 
-    if not args.skip_harmonize and summary.get("frames_annotated"):
-        log.info("harmonize: exposure match + contact shadow -> refined/")
-        _run_harmonize(cfg, batch_dir, summary.get("scenes") or [], log)
-
     if args.skip_export:
         log.info("skip export; specs at %s", batch_dir / "specs.json")
         return 0
@@ -150,6 +146,10 @@ def main(argv: list[str] | None = None) -> int:
         for p in verify["problems"]:
             log.error("  verify problem: %s", p)
         return 1
+
+    if not args.skip_harmonize and summary.get("frames_annotated"):
+        log.info("harmonize: exposure match + contact shadow -> refined/")
+        _run_harmonize(cfg, batch_dir, summary.get("scenes") or [], log)
     return 0
 
 
