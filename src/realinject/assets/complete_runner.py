@@ -91,7 +91,7 @@ def complete_av2(record: AssetRecord, library_root, n_samples: int = 20000) -> d
     if not src.exists():
         log.warning("skip %s: canonical missing %s", record.asset_id, src)
         return None
-    with np.load(src, allow_pickle=True) as data:
+    with np.load(src) as data:
         canon = {k: data[k] for k in data.files}
     if "xyz" not in canon:
         log.warning("skip %s: not a cloud canonical", record.asset_id)

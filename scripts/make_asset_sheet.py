@@ -32,7 +32,7 @@ VIEWS = (("front", 0, 2), ("side", 1, 2), ("top", 0, 1))
 
 
 def _load_points(npz_path: Path, n: int) -> tuple[np.ndarray, np.ndarray]:
-    with np.load(npz_path, allow_pickle=True) as data:
+    with np.load(npz_path) as data:
         canon = {k: data[k] for k in data.files}
     if "xyz" in canon:  # av2 cloud
         xyz = np.asarray(canon["xyz"], dtype=float)

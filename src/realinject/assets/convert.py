@@ -119,7 +119,7 @@ def points_to_gaussians(canon: dict, cfg: dict | None = None) -> GaussianCloud:
 def record_to_cloud(record, library_root: str | Path, cfg: dict | None = None) -> GaussianCloud:
     """Load an AssetRecord's canonical npz and build its GaussianCloud."""
     npz = Path(library_root) / record.canonical_path
-    with np.load(npz, allow_pickle=True) as data:
+    with np.load(npz) as data:
         canon = {k: data[k] for k in data.files}
     if record.kind == "realcar_mesh":
         cloud = mesh_to_gaussians(canon, cfg)

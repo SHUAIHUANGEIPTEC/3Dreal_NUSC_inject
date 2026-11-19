@@ -202,7 +202,7 @@ def canonicalize_realcar(
 def canonicalize_av2(npz_path: str | Path, out_npz: str | Path) -> dict:
     """Normalize one AV2 track cloud (Z-up, bbox-centred) into ``out_npz``."""
     npz_path = Path(npz_path)
-    with np.load(npz_path, allow_pickle=True) as data:
+    with np.load(npz_path) as data:
         pts = np.asarray(data["pts"], dtype=float)
         intensity = np.asarray(data["intensity"])
         dims = np.asarray(data["dims"], dtype=float)
@@ -242,5 +242,5 @@ def canonicalize_av2(npz_path: str | Path, out_npz: str | Path) -> dict:
 
 def load_canonical(path: str | Path) -> dict:
     """Load a canonical npz as a plain dict."""
-    with np.load(path, allow_pickle=True) as data:
+    with np.load(path) as data:
         return {k: data[k] for k in data.files}

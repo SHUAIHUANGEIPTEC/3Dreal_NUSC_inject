@@ -27,7 +27,7 @@ log = logging.getLogger("pipeline_gauss")
 
 def load_cloud(path: str | Path, cfg: dict | None = None) -> GaussianCloud:
     """Load a canonical asset npz and build its GaussianCloud (by npz kind)."""
-    with np.load(path, allow_pickle=True) as data:
+    with np.load(path) as data:
         canon = {k: data[k] for k in data.files}
     if "xyz" in canon:
         return points_to_gaussians(canon, cfg)
