@@ -121,7 +121,7 @@ def run_ext(cfg: dict, gts: list, lidar_result: dict, cam_result: dict,
         # Corners are NOT clipped to the frame: a box extending past the image
         # still bounds the silhouette. If any corner is behind the camera the
         # enclosure is ill-defined -> not evaluable for this camera.
-        corners = _box_corners(gts)
+        corners = _box_corners_global(gts)
         pcorners = tf.transform_pts(t_g2c, corners)
         proj2 = _project(pcorners, k, w, h, clip_to_frame=False)
         if proj2 is not None:
@@ -167,20 +167,26 @@ def run_ext(cfg: dict, gts: list, lidar_result: dict, cam_result: dict,
     return {"all_pass": all_pass, "checks": checks}
 
 
-def _box_corners(gts: list) -> np.ndarray:
+def _box_corners(gt: dict, t: np.ndarray) -> np.ndarray:
+    """8 corners of one gt box expressed in the frame of transform ``t``.
+
+    The uniform scale is already inside T (anchor composes pose·S·norm);
+    scaling the raw bbox again would double-apply it (was latent with
+    scale pinned to 1.0).
+    """
+    raw_min = np.array(gt["raw_bbox_min"], dtype=float)
+    raw_size = np.array(gt["raw_bbox_size"], dtype=float)
+    corners = np.array([[x, y, z] for x in (0, 1) for y in (0, 1)
+                        for z in (0, 1)], dtype=float)
+    return (corners * raw_size + raw_min) @ t[:3, :3].T + t[:3, 3]
+
+
+def _box_corners_global(gts: list) -> np.ndarray:
     """8 corners of every gt box in the global frame (for enclosure checks)."""
-    out = []
-    for gt in gts:
-        t = np.array(gt["T_model2global"], dtype=float).reshape(4, 4)
-        raw_min = np.array(gt["raw_bbox_min"], dtype=float)
-        raw_size = np.array(gt["raw_bbox_size"], dtype=float)
-        scale = float(gt.get("scale", 1.0))
-        # model frame is scaled by `scale` inside T_model2global already
-        corners = np.array([[x, y, z] for x in (0, 1) for y in (0, 1)
-                            for z in (0, 1)], dtype=float)
-        pts = (corners * raw_size + raw_min) * scale
-        out.append(pts @ t[:3, :3].T + t[:3, 3])
-    return np.vstack(out)
+    return np.vstack([
+        _box_corners(gt, np.array(gt["T_model2global"],
+                                  dtype=float).reshape(4, 4))
+        for gt in gts])
 
 
 def _ground_contact(cfg: dict, gts: list,
@@ -203,13 +209,7 @@ def _ground_contact(cfg: dict, gts: list,
     gaps = []
     for gt in gts:
         t_m2l = np.array(gt["T_model2lidar"], dtype=float).reshape(4, 4)
-        raw_min = np.array(gt["raw_bbox_min"], dtype=float)
-        raw_size = np.array(gt["raw_bbox_size"], dtype=float)
-        scale = float(gt.get("scale", 1.0))
-        corners = np.array([[x, y, z] for x in (0, 1) for y in (0, 1)
-                            for z in (0, 1)], dtype=float)
-        pts_l = ((corners * raw_size + raw_min) * scale) @ t_m2l[:3, :3].T \
-            + t_m2l[:3, 3]
+        pts_l = _box_corners(gt, t_m2l)
         bottom_z = float(pts_l[:, 2].min())
         # ground at the placement anchor (same xy as placement.resnap_ground)
         off = gt["placement"]["offset_in_lidar_frame"]
