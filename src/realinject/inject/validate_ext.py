@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from .placement import robust_ground_z
+from .placement import DEFAULT_GROUND_RESNAP, _ground_estimate
 
 
 def _project(pts_cam: np.ndarray, k: np.ndarray, width: int, height: int,
@@ -194,6 +194,10 @@ def _ground_contact(cfg: dict, gts: list,
     if scene_pts is None:
         return {"max_gap_m": max_gap, "gap_m": [], "evaluable": False,
                 "pass": True}
+    # same estimator + parameters as placement.resnap_ground: tuning
+    # ground_resnap must move the checker with the fixer, not fork them
+    rc = dict(DEFAULT_GROUND_RESNAP)
+    rc.update(cfg.get("ground_resnap") or {})
 
     gaps = []
     for gt in gts:
@@ -208,8 +212,10 @@ def _ground_contact(cfg: dict, gts: list,
         bottom_z = float(pts_l[:, 2].min())
         # ground under the box centre (same estimator as the resnap)
         centre = pts_l.mean(axis=0)
-        ground = robust_ground_z(scene_pts, float(centre[0]),
-                                 float(centre[1]))
+        ground, _confident = _ground_estimate(
+            scene_pts, float(centre[0]), float(centre[1]),
+            radius_m=float(rc["radius_m"]), band_m=float(rc["band_m"]),
+            seed_pct=float(rc["seed_pct"]), min_pts=int(rc["min_pts"]))
         gaps.append(bottom_z - ground)
     return {
         "max_gap_m": max_gap,
