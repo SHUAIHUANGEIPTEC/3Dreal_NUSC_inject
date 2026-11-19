@@ -95,8 +95,11 @@ def test_alpha_in_unit_range_and_rgb_shape():
     assert out.rgb.shape == (H, W, 3) and out.rgb.dtype == np.uint8
     assert out.alpha.dtype == np.float32
     assert out.alpha.min() >= 0.0 and out.alpha.max() <= 1.0
-    # unpremultiplied foreground: white spheres stay white where opaque
-    interior = out.alpha > 0.9
+    # unpremultiplied foreground: white spheres stay white where opaque.
+    # Threshold 0.85 (not 0.9): the supersampled renderer reports honest
+    # area coverage — a sub-pixel gap lowers the 4-sample mean slightly,
+    # where the old single-sample path read a lucky saturated peak.
+    interior = out.alpha > 0.85
     assert interior.sum() > 1000
     assert np.allclose(out.rgb[interior], 255, atol=2)
 

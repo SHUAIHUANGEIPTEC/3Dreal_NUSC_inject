@@ -36,6 +36,26 @@ def test_realcar_flat_texture_rejected():
     assert any(r.startswith("texture_flat") for r in reasons)
 
 
+def test_realcar_black_texture_rejected():
+    ok, reasons = quality.gate_realcar((4.9, 1.9, 1.3), 100.0, _manifest(),
+                                       texture_black_frac=0.18)
+    assert not ok
+    assert any(r.startswith("texture_black:") for r in reasons)
+
+
+def test_realcar_clean_texture_passes_black_gate():
+    ok, reasons = quality.gate_realcar((4.9, 1.9, 1.3), 100.0, _manifest(),
+                                       texture_black_frac=0.02)
+    assert ok and not reasons
+
+
+def test_realcar_black_gate_skipped_when_unmeasured():
+    # callers without a texture handy (None) must not fail the gate
+    ok, reasons = quality.gate_realcar((4.9, 1.9, 1.3), 100.0, _manifest(),
+                                       texture_black_frac=None)
+    assert ok and not reasons
+
+
 def test_av2_pass_and_fail():
     good = {"n": 4479, "az_span_deg": 347, "pts_per_m2": 1409, "coverage": 0.174}
     ok, reasons = quality.gate_av2(good)

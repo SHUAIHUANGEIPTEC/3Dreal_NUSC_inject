@@ -113,3 +113,115 @@ def _inject_root():
     from pathlib import Path
 
     return Path(__file__).resolve().parents[2].parent / "nusc-inject"
+
+
+def _cluttered_scene():
+    """Road at z=-1.2 with SPARSE returns (occluded by the truck) under a
+    dense truck body at z=[0.5, 3.0]: the naive 15th percentile lands on the
+    truck, the low-tail seed still finds the road."""
+    rng = np.random.default_rng(0)
+    road = np.column_stack([
+        rng.uniform(-6, 6, 90), rng.uniform(-6, 6, 90),
+        np.full(90, -1.2) + rng.normal(0, 0.02, 90)])
+    truck = np.column_stack([
+        rng.uniform(-1, 1, 660), rng.uniform(-1, 1, 660),
+        rng.uniform(0.5, 3.0, 660)])
+    return np.vstack([road, truck])
+
+
+def test_robust_ground_z_ignores_elevated_clutter():
+    pts = _cluttered_scene()
+    z = placement.robust_ground_z(pts, 0.0, 0.0, radius_m=6.0)
+    assert abs(z - (-1.2)) < 0.1, f"picked clutter: {z:.2f}"
+    # the naive percentile build_gt uses lands on the truck here
+    d2 = pts[:, 0] ** 2 + pts[:, 1] ** 2
+    near = pts[d2 <= 36.0]
+    naive = float(np.percentile(near[:, 2], 15))
+    assert naive > -0.5, "test scene must actually fool the naive percentile"
+
+
+def test_resnap_ground_shifts_pose_and_translation():
+    pts = _cluttered_scene()
+    # a gt as build_gt would produce it if the percentile hit the truck
+    gt = {
+        "ground_z_lidar": 0.6,
+        "T_model2lidar": np.eye(4).reshape(-1).tolist(),
+        "T_lidar2global": np.eye(4).reshape(-1).tolist(),
+        "raw_bbox_min": [0.0, 0.0, 0.0],
+        "raw_bbox_size": [4.9, 1.9, 1.5],
+        "translation": [2.45, 0.95, 0.75],
+        "placement": {"offset_in_lidar_frame": [0.0, 0.0, 0.6]},
+    }
+    shifted = placement.resnap_ground(gt, pts, {"ground_resnap": {}})
+    # object floated 1.8 m above road -> shift ~-1.8, ground_z re-estimated
+    assert -2.0 < shifted < -1.5
+    assert abs(gt["ground_z_lidar"] - (-1.2)) < 0.1
+    t_m2l = np.array(gt["T_model2lidar"]).reshape(4, 4)
+    assert abs(t_m2l[2, 3] - shifted) < 1e-9
+    # translation follows the shift (rotation untouched: eye)
+    assert abs(gt["translation"][2] - (0.75 + shifted)) < 1e-6
+    assert gt["placement"]["offset_in_lidar_frame"][2] == gt["ground_z_lidar"]
+
+
+def test_resnap_ground_noop_for_small_delta_and_disabled():
+    pts = np.column_stack([
+        np.random.default_rng(1).uniform(-5, 5, 300),
+        np.random.default_rng(2).uniform(-5, 5, 300),
+        np.full(300, -1.0)])
+    gt = {
+        "ground_z_lidar": -1.0,
+        "T_model2lidar": np.eye(4).reshape(-1).tolist(),
+        "T_lidar2global": np.eye(4).reshape(-1).tolist(),
+        "raw_bbox_min": [0.0, 0.0, 0.0],
+        "raw_bbox_size": [4.9, 1.9, 1.5],
+        "translation": [2.45, 0.95, -0.25],
+        "placement": {"offset_in_lidar_frame": [0.0, 0.0, -1.0]},
+    }
+    assert placement.resnap_ground(gt, pts, {"ground_resnap": {}}) == 0.0
+    assert placement.resnap_ground(
+        gt, pts, {"ground_resnap": {"enabled": False}}) == 0.0
+    assert gt["ground_z_lidar"] == -1.0
+
+
+def test_ground_contact_check_in_validate_ext():
+    from realinject.inject import validate_ext
+
+    cfg = {"validation": {"ground_contact_max_m": 0.35}}
+    pts = _cluttered_scene()
+
+    def _gt(bottom_z_lidar):
+        t = np.eye(4)
+        t[2, 3] = bottom_z_lidar
+        return {"T_model2lidar": t.reshape(-1).tolist(),
+                "T_model2global": t.reshape(-1).tolist(),
+                "raw_bbox_min": [0.0, 0.0, 0.0],
+                "raw_bbox_size": [4.9, 1.9, 1.5], "scale": 1.0}
+
+    # seated: bbox bottom at road level passes
+    seated = validate_ext._ground_contact(cfg, [_gt(-1.2)], pts)
+    assert seated["evaluable"] and seated["pass"]
+    # floating 1 m above road fails
+    floating = validate_ext._ground_contact(cfg, [_gt(-0.2)], pts)
+    assert floating["evaluable"] and not floating["pass"]
+    assert floating["gap_m"][0] > 0.9
+    # no scene points -> not evaluable, not failing
+    skipped = validate_ext._ground_contact(cfg, [_gt(-0.2)], None)
+    assert not skipped["evaluable"] and skipped["pass"]
+
+
+def test_resnap_allows_large_shift_when_confident():
+    """build_gt polluted by building returns (naive p15 = +2.8 m) while the
+    road band is clearly visible -> a >3 m correction must go through."""
+    pts = _cluttered_scene()  # road -1.2 with 90 band points (confident)
+    gt = {
+        "ground_z_lidar": 2.8,  # what the naive percentile produced
+        "T_model2lidar": np.eye(4).reshape(-1).tolist(),
+        "T_lidar2global": np.eye(4).reshape(-1).tolist(),
+        "raw_bbox_min": [0.0, 0.0, 0.0],
+        "raw_bbox_size": [4.9, 1.9, 1.5],
+        "translation": [2.45, 0.95, 3.55],
+        "placement": {"offset_in_lidar_frame": [0.0, 0.0, 2.8]},
+    }
+    shifted = placement.resnap_ground(gt, pts, {"ground_resnap": {}})
+    assert shifted < -3.9, "confident large shift must not be capped at 3 m"
+    assert abs(gt["ground_z_lidar"] - (-1.2)) < 0.1

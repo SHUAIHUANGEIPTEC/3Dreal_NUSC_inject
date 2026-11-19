@@ -4,20 +4,42 @@ EWA footprint projection (2D covariance of each anisotropic Gaussian) with an
 **order-independent soft-z accumulation** instead of front-to-back transmittance
 blending:
 
-- per-pixel z-buffer minimum is taken over footprints with weight > ``w_min``
-  (``zmin``);
+- per-pixel nearest depth is taken over footprints with weight > ``w_min``
+  (``zmin``), using each Gaussian's **front surface** ``z - thickness`` so
+  neighbouring samples of the same curved surface do not occlude each other;
 - every footprint pair contributes ``w = opacity * exp(-0.5 d^T Σ2d^-1 d)``
-  scaled by ``exp(-max(0, z - zmin) / tau_m)`` — surfaces further than ``tau_m``
-  behind the nearest one are suppressed, which approximates occlusion for
-  opaque assets (our assets are sampled surfaces, not volumetric media);
+  scaled by ``exp(-max(0, z_back - zmin) / tau_m)`` — surfaces further than
+  ``tau_m`` behind the nearest one are suppressed, which approximates occlusion
+  for opaque assets (our assets are sampled surfaces, not volumetric media);
 - color is the weight-normalized mean ``Σ w c / Σ w``, alpha is the
   independent transmittance product ``1 - exp(Σ log1p(-w))``, depth the
   weight-normalized mean z.
 
+Quality stages (all configurable under ``gaussian.render``):
+
+1. **pixel-centre sampling** — footprint samples sit at ``(gx+0.5, gy+0.5)``,
+   the true pixel centre (integer sampling shifts every footprint by half a
+   pixel and produces systematic aliasing);
+2. **supersampling** (``ssaa``) — the scene is rasterized at ``ssaa ×``
+   resolution and alpha-weighted downsampled (alpha / unpremultiplied rgb /
+   depth are all reconstructed from the sub-samples), which removes edge
+   stair-stepping and per-pixel coverage noise;
+3. **depth-thickness visibility** (``z_thickness_k``) — occlusion compares each
+   Gaussian's back surface against the nearest front surface, so surface
+   sampling gaps do not punch holes through the object;
+4. **edge-preserving cleanup** (``smooth_rgb`` / ``min_blob_px``) — a
+   bilateral filter smooths residual color grain on the surface while keeping
+   texture edges sharp, and isolated specks below ``min_blob_px`` are
+   dropped. Alpha itself is never filtered (supersampling already
+   reconstructs coverage; an aggressive filter would dim true opacity). The
+   cleanup never changes the output contract: ``rgb`` stays unpremultiplied
+   and ``mask == alpha > depth_eps``.
+
 Exact transmittance blending is order-dependent and needs a Python-loop over
 every Gaussian (seconds per frame at 120k splats); the soft-z form is fully
 vectorized (bincount / lexsort over the footprint pairs) and stays
-deterministic. ``tau_m`` (0.1 m) is the only approximation knob.
+deterministic. ``tau_m`` (0.1 m) is the only approximation knob of the
+visibility term.
 
 Output contract (matches ``nusc_inject.composite.composite_onto``):
 ``rgb`` is the **unpremultiplied** foreground color, ``alpha`` in [0,1],
@@ -44,6 +66,20 @@ DEFAULTS: dict = {
     "tau_m": 0.1,  # soft-z occlusion falloff, meters
     "alpha_max": 0.999,  # clamp so log1p(-w) stays finite
     "depth_eps": 1.0e-4,  # alpha below this stays inf-depth
+    # --- quality knobs -------------------------------------------------
+    "ssaa": 2,  # supersampling factor (1 = off)
+    "z_thickness_k": 1.0,  # sigma multiplier for the front-surface depth
+    # alpha is never smoothed: supersampling already reconstructs coverage,
+    # and any filter aggressive enough to matter would dim true opacity.
+    "smooth_rgb": True,  # bilateral smoothing of rgb on the surface
+    "smooth_rgb_sigma": 28.0,  # bilateral color sigma for rgb in [0,255]
+    "smooth_space_sigma": 4.0,  # bilateral spatial sigma, pixels
+    "min_blob_px": 8,  # drop connected components smaller than this
+    # memory guard: a close-up target can grow footprints to the r_max cap,
+    # making the COO expansion (≈19 live int64/float64 arrays per pair)
+    # reach tens of GB. Budget the pair count, then hard-fail with an
+    # actionable message instead of letting the OOM killer take the process.
+    "max_pairs": 200_000_000,
 }
 
 
@@ -92,16 +128,14 @@ def _invert_rigid(t: np.ndarray) -> np.ndarray:
     return inv
 
 
-def render_gaussians(cam: dict, cloud: GaussianCloud,
-                     T_model2global: np.ndarray | None = None,
-                     cfg: dict | None = None) -> RenderOut:
-    """Rasterize one GaussianCloud into one camera.
+def _rasterize(cam: dict, cloud: GaussianCloud,
+               T_model2global: np.ndarray | None, p: dict
+               ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
+    """Raw soft-z accumulation at ``cam`` resolution.
 
-    cam: CameraSpec dict (name/K/T_cam2global/width/height), OpenCV camera.
-    T_model2global: 4x4; None means the cloud is already in the global frame.
+    Returns ``(rgb float[0,1], alpha float, depth float[inf=empty], info)``;
+    the caller runs supersample reconstruction and post-processing.
     """
-    t0 = time.perf_counter()
-    p = render_cfg(cfg)
     k = np.asarray(cam["K"], dtype=np.float64)
     fx, fy, cx, cy = float(k[0, 0]), float(k[1, 1]), float(k[0, 2]), float(k[1, 2])
     width, height = int(cam["width"]), int(cam["height"])
@@ -120,6 +154,8 @@ def render_gaussians(cam: dict, cloud: GaussianCloud,
     r_total = np.einsum("ij,njk->nik", r_m2c, quat_to_rotmat(cloud.rot))
     s2 = np.asarray(cloud.scale, dtype=np.float64) ** 2
     sigma = (r_total * s2[:, None, :]) @ np.transpose(r_total, (0, 2, 1))
+    # view-direction (camera z) thickness of each splat: front/back surfaces
+    sigma_z = np.sqrt(np.maximum(sigma[:, 2, 2], 0.0))
 
     # EWA: project the 3D covariance through the Jacobian of the projection
     inv_z = 1.0 / np.maximum(z, 1e-6)
@@ -138,27 +174,33 @@ def render_gaussians(cam: dict, cloud: GaussianCloud,
     disc = np.sqrt(np.maximum(tr * tr / 4.0 - det, 0.0))
     lmax = tr / 2.0 + disc
     radius = p["radius_scale"] * np.sqrt(np.maximum(lmax, 0.0))
-    radius = np.clip(radius, p["r_min_px"], p["r_max_px"])
+    # the pixel caps are output-resolution quantities: at ssaa>1 a given
+    # physical footprint is s x larger in sub-pixel units, so both caps scale
+    # with ssaa (otherwise close-up splats get culled by r_max_px)
+    s_ssaa = max(1, int(p.get("ssaa", 1)))
+    radius = np.clip(radius, p["r_min_px"], p["r_max_px"] * s_ssaa)
 
     u = fx * mu[:, 0] * inv_z + cx
     v = fy * mu[:, 1] * inv_z + cy
 
-    on_frame = valid & (u + radius > 0) & (u - radius < width) \
-        & (v + radius > 0) & (v - radius < height)
+    # 1 output-pixel cull margin: at ssaa>1 the sub-pixel floor term is not
+    # scaled with the intrinsics, so r'/s can be up to ~0.8 px tighter than
+    # the output-resolution radius and would cull edge-touching splats
+    margin = max(1, int(p.get("ssaa", 1)))
+    on_frame = valid & (u + radius + margin > 0) & (u - radius - margin < width) \
+        & (v + radius + margin > 0) & (v - radius - margin < height)
     keep = np.flatnonzero(on_frame)
     if len(keep) == 0:
-        return RenderOut(
-            rgb=np.zeros((height, width, 3), np.uint8),
-            alpha=np.zeros((height, width), np.float32),
-            depth=np.full((height, width), np.inf, np.float32),
-            mask=np.zeros((height, width), bool),
-            info={"n_gauss": int(len(cloud)), "n_kept": 0, "n_pairs": 0, "n_px": 0,
-                  "t_sec": time.perf_counter() - t0},
-        )
+        npx = height * width
+        return (np.zeros((height, width, 3), np.float64),
+                np.zeros((height, width), np.float64),
+                np.full((height, width), np.inf, np.float64),
+                {"n_gauss": int(len(cloud)), "n_kept": 0, "n_pairs": 0})
 
     u, v, z = u[keep], v[keep], z[keep]
     radius = radius[keep]
     a, b, c, det = a[keep], b[keep], c[keep], det[keep]
+    sigma_z = sigma_z[keep]
     opacity = np.clip(np.asarray(cloud.opacity, dtype=np.float64)[keep], 0.0, p["alpha_max"])
     colors = np.asarray(cloud.rgb, dtype=np.float64)[keep]
 
@@ -169,6 +211,23 @@ def render_gaussians(cam: dict, cloud: GaussianCloud,
     counts = np.maximum((x1 - x0) * (y1 - y0), 0)
 
     total = int(counts.sum())
+    budget = int(p.get("max_pairs", 200_000_000))
+    if total > budget:
+        # one shrink pass: scale every radius by sqrt(budget/total) so the
+        # pair count lands at the budget (3-sigma edge weight is negligible)
+        shrink = float(np.sqrt(budget / total))
+        radius = radius * shrink
+        x0 = np.clip(np.ceil(u - radius).astype(np.int64), 0, width)
+        x1 = np.clip(np.floor(u + radius).astype(np.int64) + 1, 0, width)
+        y0 = np.clip(np.ceil(v - radius).astype(np.int64), 0, height)
+        y1 = np.clip(np.floor(v + radius).astype(np.int64) + 1, 0, height)
+        counts = np.maximum((x1 - x0) * (y1 - y0), 0)
+        total = int(counts.sum())
+        if total > budget:
+            raise RuntimeError(
+                f"CPU rasterizer footprint budget exceeded: {total} > {budget} "
+                f"pairs at {width}x{height} (close-up target). Set "
+                f"gaussian.render.backend: gsplat (GPU) or lower ssaa.")
     idx = np.repeat(np.arange(len(counts), dtype=np.int64), counts)
     starts = np.cumsum(counts) - counts
     local = np.arange(total, dtype=np.int64) - starts[idx]
@@ -177,32 +236,41 @@ def render_gaussians(cam: dict, cloud: GaussianCloud,
     gy = y0[idx] + (local // width_i)
     flat = gy * width + gx
 
-    dx = gx - u[idx]
-    dy = gy - v[idx]
+    # sample at the true pixel centre (gx + 0.5); integer sampling shifts
+    # every footprint by half a pixel and aliases the silhouette
+    dx = gx + 0.5 - u[idx]
+    dy = gy + 0.5 - v[idx]
     # quadratic form d^T Σ2d^-1 d with Σ2d = [[a,b],[b,c]]
     quad = (c[idx] * dx * dx - 2.0 * b[idx] * dx * dy + a[idx] * dy * dy) / det[idx]
     w = opacity[idx] * np.exp(-0.5 * quad)
 
-    # pass 1: per-pixel nearest depth among significant footprints
-    # (sort by (flat, z) then take the first row of each flat group)
+    # pass 1: per-pixel nearest *front surface* (z - k*sigma_z) among
+    # significant footprints — same-surface neighbours must not occlude each
+    # other (that is what punched holes through curved bodies).
+    z_front = z - p["z_thickness_k"] * sigma_z
     sig1 = w > p["w_min"]
     zmin = np.full(height * width, np.inf, dtype=np.float64)
     if np.any(sig1):
-        f1, z1 = flat[sig1], z[idx][sig1]
+        f1, z1 = flat[sig1], z_front[idx][sig1]
         order = np.lexsort((z1, f1))
         f1s, z1s = f1[order], z1[order]
         uniq, first = np.unique(f1s, return_index=True)
         zmin[uniq] = z1s[first]
 
-    # pass 2: soft-z visibility + normalized color / alpha / depth
+    # pass 2: soft-z visibility + normalized color / alpha / depth.
+    # Front-surface vs front-surface: the splat that *defines* zmin has
+    # gap 0 (no self-suppression), while a splat sitting behind a thick
+    # neighbour is still pushed back by that neighbour's front surface —
+    # this is what closes sampling holes without dimming the whole body.
     sig2 = w > p["w_acc"]
-    f2, w2, z2, i2 = flat[sig2], w[sig2], z[idx][sig2], idx[sig2]
-    vis = np.exp(-np.maximum(0.0, z2 - zmin[f2]) / p["tau_m"])
+    f2, w2 = flat[sig2], w[sig2]
+    i2 = idx[sig2]
+    vis = np.exp(-np.maximum(0.0, z_front[i2] - zmin[f2]) / p["tau_m"])
     wv = w2 * vis
     npx = height * width
     log_term = np.bincount(f2, weights=np.log1p(-wv), minlength=npx)
     wsum = np.bincount(f2, weights=wv, minlength=npx)
-    zsum = np.bincount(f2, weights=wv * z2, minlength=npx)
+    zsum = np.bincount(f2, weights=wv * z[i2], minlength=npx)
     rgb_acc = np.stack([
         np.bincount(f2, weights=wv * colors[i2, k], minlength=npx)
         for k in range(3)
@@ -213,17 +281,121 @@ def render_gaussians(cam: dict, cloud: GaussianCloud,
     with np.errstate(invalid="ignore", divide="ignore"):
         col = rgb_acc.reshape(height, width, 3) / np.maximum(wsum, 1e-9)[:, :, None]
         depth = zsum.reshape(height, width) / np.maximum(wsum, 1e-9)
-    mask = alpha > p["depth_eps"]
-    col = np.where(mask[:, :, None], col, 0.0)
-    depth = np.where(mask, depth, np.inf)
-    col = np.clip(col, 0.0, 1.0)
+    depth = np.where(alpha > p["depth_eps"], depth, np.inf)
 
-    return RenderOut(
-        rgb=(col * 255.0 + 0.5).astype(np.uint8),
-        alpha=alpha.astype(np.float32),
-        depth=depth.astype(np.float32),
-        mask=mask,
-        info={"n_gauss": int(len(cloud)), "n_kept": int(len(keep)),
-              "n_pairs": total, "n_px": int(mask.sum()),
-              "t_sec": time.perf_counter() - t0},
-    )
+    info = {"n_gauss": int(len(cloud)), "n_kept": int(len(keep)),
+            "n_pairs": total}
+    return col, alpha, depth, info
+
+
+def _downsample(col: np.ndarray, alpha: np.ndarray, depth: np.ndarray,
+                s: int, p: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Reconstruct the output-resolution buffers from an ``s x s`` sub-grid.
+
+    alpha: sub-sample mean; rgb / depth: alpha-weighted mean so the
+    unpremultiplied colour contract survives the reconstruction.
+    """
+    if s <= 1:
+        return col, alpha, depth
+    h, w = alpha.shape
+    a = alpha.reshape(h // s, s, w // s, s)
+    a_sum = a.sum(axis=(1, 3))
+    alpha_o = a_sum / (s * s)
+    c = col.reshape(h // s, s, w // s, s, 3)
+    col_o = (c * a[..., None]).sum(axis=(1, 3)) / np.maximum(a_sum, 1e-12)[..., None]
+    d = depth.reshape(h // s, s, w // s, s)
+    finite = np.isfinite(d)
+    wf = np.where(finite, a, 0.0)
+    wf_sum = wf.sum(axis=(1, 3))
+    d_o = np.where(wf_sum > 1e-12,
+                   (np.where(finite, d, 0.0) * wf).sum(axis=(1, 3))
+                   / np.maximum(wf_sum, 1e-12),
+                   np.inf)
+    return col_o, alpha_o, d_o
+
+
+def _postprocess(col: np.ndarray, alpha: np.ndarray, depth: np.ndarray,
+                 p: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Drop isolated specks and bilateral-smooth residual grain.
+
+    Edges are preserved by the bilateral filter; depth is left untouched so
+    the depth contract (and any parity check) stays exact.
+    """
+    if int(p["min_blob_px"]) > 0:
+        from scipy import ndimage
+
+        m0 = alpha > p["depth_eps"]
+        if m0.any():
+            lab, n = ndimage.label(m0, structure=np.ones((3, 3), bool))
+            sizes = np.bincount(lab.ravel())
+            too_small = sizes < int(p["min_blob_px"])
+            too_small[0] = False  # background label
+            bad = too_small[lab]
+            alpha = np.where(bad, 0.0, alpha)
+            col = np.where(bad[..., None], 0.0, col)
+            depth = np.where(bad, np.inf, depth)
+
+    if bool(p["smooth_rgb"]):
+        import cv2
+
+        m = alpha > p["depth_eps"]
+        if m.any():
+            col = np.nan_to_num(col, nan=0.0, posinf=1.0, neginf=0.0)
+            rgb8 = (np.clip(col, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+            sm = cv2.bilateralFilter(rgb8, d=7,
+                                     sigmaColor=float(p["smooth_rgb_sigma"]),
+                                     sigmaSpace=float(p["smooth_space_sigma"]))
+            col = np.where(m[..., None], sm.astype(np.float64) / 255.0, col)
+
+    return col, alpha, depth
+
+
+def _finalize(col: np.ndarray, alpha: np.ndarray, depth: np.ndarray,
+              p: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Enforce the output contract: mask == alpha > depth_eps, inf outside."""
+    mask = (alpha > p["depth_eps"]) & np.isfinite(depth)
+    col = np.where(mask[..., None], np.clip(col, 0.0, 1.0), 0.0)
+    depth = np.where(mask, depth, np.inf)
+    alpha = np.where(mask, alpha, 0.0)
+    return ((col * 255.0 + 0.5).astype(np.uint8),
+            alpha.astype(np.float32),
+            depth.astype(np.float32), mask)
+
+
+def render_gaussians(cam: dict, cloud: GaussianCloud,
+                     T_model2global: np.ndarray | None = None,
+                     cfg: dict | None = None) -> RenderOut:
+    """Rasterize one GaussianCloud into one camera.
+
+    cam: CameraSpec dict (name/K/T_cam2global/width/height), OpenCV camera.
+    T_model2global: 4x4; None means the cloud is already in the global frame.
+    """
+    t0 = time.perf_counter()
+    p = render_cfg(cfg)
+    s = max(1, int(p["ssaa"]))
+    if s > 1:
+        cam_hi = dict(cam)
+        k = np.asarray(cam["K"], dtype=np.float64)
+        k_hi = k.copy()
+        k_hi[0, 0] *= s
+        k_hi[1, 1] *= s
+        k_hi[0, 2] *= s
+        k_hi[1, 2] *= s
+        cam_hi["K"] = k_hi
+        cam_hi["width"] = int(cam["width"]) * s
+        cam_hi["height"] = int(cam["height"]) * s
+    else:
+        cam_hi = cam
+
+    col, alpha, depth, info = _rasterize(cam_hi, cloud, T_model2global, p)
+    col, alpha, depth = _downsample(col, alpha, depth, s, p)
+    col, alpha, depth = _postprocess(col, alpha, depth, p)
+    rgb, alpha, depth, mask = _finalize(col, alpha, depth, p)
+
+    info.update({"ssaa": s, "n_px": int(mask.sum()),
+                 "t_sec": time.perf_counter() - t0})
+    return RenderOut(rgb=rgb, alpha=alpha, depth=depth, mask=mask, info=info)
+
+
+__all__ = ["DEFAULTS", "RenderOut", "quat_to_rotmat", "render_cfg",
+           "render_gaussians"]

@@ -13,6 +13,9 @@ DEFAULT_GATES: dict = {
         "w_range": [1.4, 2.6],
         "h_range": [1.0, 2.0],
         "min_texture_std": 5.0,  # flat/degenerate texture guard (0-255 scale)
+        "max_texture_black_frac": 0.05,  # UV-sampled near-black fraction;
+        # catches atlases whose unpainted black regions the body UVs actually
+        # land on (texture_std alone passes them: yellow-vs-black raises std)
         "bbox_manifest_tol": 0.2,  # |OBB - manifest L/W/H| / value
     },
     "av2": {
@@ -44,8 +47,14 @@ def _in_range(value: float, bounds: list[float]) -> bool:
 
 
 def gate_realcar(dims_lwh: tuple[float, float, float], texture_std: float,
-                 manifest_entry: dict | None, gates: dict | None = None) -> tuple[bool, list[str]]:
-    """Gate one realcar record; dims are the yaw-aligned OBB (L, W, H)."""
+                 manifest_entry: dict | None, gates: dict | None = None,
+                 texture_black_frac: float | None = None,
+                 ) -> tuple[bool, list[str]]:
+    """Gate one realcar record; dims are the yaw-aligned OBB (L, W, H).
+
+    ``texture_black_frac``: fraction of UV-sampled vertex colors that are
+    near-black (None = check skipped, for callers without a texture handy).
+    """
     g = _merge(DEFAULT_GATES["realcar"], (gates or {}).get("realcar"))
     reasons: list[str] = []
     length, width, height = dims_lwh
@@ -62,6 +71,10 @@ def gate_realcar(dims_lwh: tuple[float, float, float], texture_std: float,
         reasons.append(f"h_out_of_range:{height:.2f}")
     if texture_std < g["min_texture_std"]:
         reasons.append(f"texture_flat:{texture_std:.1f}")
+
+    if texture_black_frac is not None and \
+            texture_black_frac > float(g["max_texture_black_frac"]):
+        reasons.append(f"texture_black:{texture_black_frac:.3f}")
 
     if manifest_entry:
         tol = g["bbox_manifest_tol"]

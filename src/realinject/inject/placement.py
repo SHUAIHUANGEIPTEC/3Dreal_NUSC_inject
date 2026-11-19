@@ -8,7 +8,11 @@ and ``T_model2global`` stay the single source of truth for both channels.
 """
 from __future__ import annotations
 
+import logging
+
 import numpy as np
+
+log = logging.getLogger(__name__)
 
 #: category prefix -> (forward_m, lateral_m) prior; matched by longest prefix
 CATEGORY_PRIORS: dict[str, tuple[tuple[float, float], tuple[float, float]]] = {
@@ -17,6 +21,21 @@ CATEGORY_PRIORS: dict[str, tuple[tuple[float, float], tuple[float, float]]] = {
     "movable_object": ((6.0, 20.0), (-5.0, 5.0)),
 }
 DEFAULT_PRIOR = ((8.0, 25.0), (-4.0, 4.0))
+
+#: robust ground re-snap defaults (override via cfg["ground_resnap"])
+DEFAULT_GROUND_RESNAP: dict = {
+    "enabled": True,
+    "radius_m": 6.0,      # search circle; wider than build_gt's 4 m so the
+                          # road is visible even when a truck sits on it
+    "band_m": 0.4,        # keep points within [seed, seed+band] as ground
+    "seed_pct": 2.0,      # low-percentile seed: lands on the road, not clutter
+    "min_pts": 10,
+    "max_shift_m": 6.0,   # hard cap even for confident estimates; the naive
+                          # percentile can be polluted several metres up by
+                          # buildings/trucks, so this must stay generous
+    "max_shift_weak_m": 0.3,  # cap when the ground band had to fall back
+    "min_shift_m": 0.01,  # smaller deltas are noise; keep build_gt's answer
+}
 
 
 def prior_for(category: str | None) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -115,3 +134,89 @@ def model_cfg_for(record, library_root: str) -> dict:
         "kind": record.kind,
         "dims_lwh_m": list(record.dims_lwh_m),
     }
+
+
+def _ground_estimate(lidar_pts: np.ndarray, x: float, y: float,
+                     radius_m: float, band_m: float, seed_pct: float,
+                     min_pts: int) -> tuple[float, bool]:
+    """Two-stage ground estimate; returns (z, confident).
+
+    ``confident`` is False when the ground band had too few points and we
+    fell back to the whole-neighbourhood median (which may sit on clutter).
+    """
+    pts = np.asarray(lidar_pts, dtype=float)
+    d2 = (pts[:, 0] - x) ** 2 + (pts[:, 1] - y) ** 2
+    near = pts[d2 <= radius_m * radius_m]
+    if len(near) < min_pts:
+        near = pts
+    z = near[:, 2]
+    seed = float(np.percentile(z, seed_pct))
+    band = z[z <= seed + band_m]
+    if len(band) < min_pts:
+        return float(np.median(z)), False
+    return float(np.median(band)), True
+
+
+def robust_ground_z(lidar_pts: np.ndarray, x: float, y: float,
+                    radius_m: float = 6.0, band_m: float = 0.4,
+                    seed_pct: float = 2.0, min_pts: int = 10) -> float:
+    """Ground z at (x, y) robust to elevated clutter (truck bodies, barriers).
+
+    ``anchor.build_gt`` takes a fixed percentile of the neighbourhood; when
+    non-ground returns dominate that circle (placement next to a parked truck)
+    the percentile lands on the truck and the object floats. Two-stage
+    estimate instead: seed from the LOW tail (road is the z-min mode), then
+    median of the ground band around the seed.
+    """
+    return _ground_estimate(lidar_pts, x, y, radius_m, band_m, seed_pct,
+                            min_pts)[0]
+
+
+def resnap_ground(gt: dict, lidar_pts: np.ndarray,
+                  cfg: dict | None = None) -> float:
+    """Re-seat a freshly placed gt on ``robust_ground_z``; returns the shift.
+
+    Mutates ``gt`` in place (pose translation, ground_z, placement offset,
+    center translation). Frozen ``from_global`` poses must NOT be passed here —
+    the caller skips them so a track keeps one world pose across frames.
+    Returns the applied lidar-frame z shift in meters (0 = no change).
+    """
+    rc = dict(DEFAULT_GROUND_RESNAP)
+    rc.update((cfg or {}).get("ground_resnap") or {})
+    if not rc["enabled"]:
+        return 0.0
+
+    off = gt["placement"]["offset_in_lidar_frame"]
+    z_new, confident = _ground_estimate(
+        lidar_pts, float(off[0]), float(off[1]),
+        radius_m=float(rc["radius_m"]), band_m=float(rc["band_m"]),
+        seed_pct=float(rc["seed_pct"]), min_pts=int(rc["min_pts"]))
+    delta = z_new - float(gt["ground_z_lidar"])
+    if abs(delta) < float(rc["min_shift_m"]):
+        return 0.0
+    # confident estimates may travel far (the naive percentile can be
+    # polluted metres up by buildings); weak estimates only fine-tune
+    cap = float(rc["max_shift_m"] if confident else rc["max_shift_weak_m"])
+    if abs(delta) > cap:
+        log.warning(
+            "ground resnap refused for placement (%.2f, %.2f): shift %.2f m "
+            "exceeds %.2f m (%s estimate); keeping build_gt ground_z=%.2f",
+            float(off[0]), float(off[1]), delta, cap,
+            "confident" if confident else "weak", float(gt["ground_z_lidar"]))
+        return 0.0
+
+    t_m2l = np.array(gt["T_model2lidar"], dtype=float).reshape(4, 4)
+    t_m2l[2, 3] += delta
+    t_l2g = np.array(gt["T_lidar2global"], dtype=float).reshape(4, 4)
+    t_m2g = t_l2g @ t_m2l
+    gt["T_model2lidar"] = [float(v) for v in t_m2l.reshape(-1)]
+    gt["T_model2global"] = [float(v) for v in t_m2g.reshape(-1)]
+    gt["ground_z_lidar"] = z_new
+    off[2] = z_new
+    # center translation follows the shifted pose (rotation/scale untouched)
+    raw_min = np.array(gt["raw_bbox_min"], dtype=float)
+    raw_size = np.array(gt["raw_bbox_size"], dtype=float)
+    center = raw_min + raw_size / 2.0
+    gt["translation"] = [float(v) for v in
+                         (t_m2g[:3, :3] @ center + t_m2g[:3, 3])]
+    return float(delta)

@@ -142,3 +142,75 @@ def test_refiner_switching():
         get_refiner("magicdrive")
     with pytest.raises(ValueError):
         get_refiner("bogus")
+
+
+# ---------------------------------------------------------------- shadow
+def _target_box(h=200, w=300, rows=(60, 120), cols=(100, 200)):
+    t = np.zeros((h, w), bool)
+    t[rows[0]:rows[1], cols[0]:cols[1]] = True
+    return t
+
+
+def test_footprint_radial_falloff_no_flat_top():
+    from realinject.harmonize import shadow
+
+    t = _target_box()
+    fp = shadow.build_footprint(t, blur=0, dx_frac=0.0, dy_frac=0.1)
+    assert fp[t].max() == 0.0            # never darkens the object itself
+    # peak sits BELOW the silhouette bottom-centre (box ends at row 120),
+    # so the darkest contact line is on the ground, not on the car
+    col = fp[:, 150]                     # box centre column
+    assert col[120:].max() > 0.99, "contact line below the object must peak"
+    y_pk = int(np.argmax(col))
+    assert y_pk >= 120, "peak must not sit inside the object"
+    # radial decay: value strictly decreases away from the peak along +y
+    tail = col[y_pk:y_pk + 40]
+    assert np.all(np.diff(tail) <= 1e-6), "falloff must be monotone"
+    assert tail[-1] < 0.30, "tail must have decayed substantially by 40 px"
+    # rim reaches ~0: no hard plateau edge
+    edge = col[y_pk + 40: y_pk + 80]
+    assert edge.max() < 0.05
+
+
+def test_footprint_scales_with_object():
+    from realinject.harmonize import shadow
+
+    small = shadow.build_footprint(_target_box(rows=(60, 80), cols=(140, 160)),
+                                   blur=0)
+    big = shadow.build_footprint(_target_box(), blur=0)
+    assert big.sum() > 5 * small.sum()
+
+
+def test_foreground_gate_keeps_ground_drops_occluder():
+    from realinject.harmonize import shadow
+
+    t = _target_box()
+    fp = shadow.build_footprint(t, blur=0, dx_frac=0.0, dy_frac=0.1)
+    h, w = t.shape
+    od = np.full((h, w), np.inf, np.float32)
+    od[t] = 22.5                        # object contact distance ~22.5 m
+    sd = np.full((h, w), np.inf, np.float32)
+    sd[120:, :] = 15.0                  # ground below: nearer than object,
+                                        # but > 0.3 * 22.5 = 6.75 -> keep
+    # probe INSIDE the ellipse: cy = 119 + 0.1*60 = 125, semi_h = 13
+    gated = shadow.foreground_gate(fp, t, od, sd, fg_factor=0.30)
+    assert gated[130, 150] > 0.0, "ground must keep its shadow"
+    assert gated.sum() > 0.9 * fp.sum()
+
+    sd2 = sd.copy()
+    sd2[125:145, 120:180] = 5.0         # a true near foreground occluder
+    gated2 = shadow.foreground_gate(fp, t, od, sd2, fg_factor=0.30)
+    assert gated2[130, 150] == 0.0, "near foreground must be dropped"
+    # ground outside the occluder, still inside the ellipse, keeps shadow
+    assert gated2[130, 105] > 0.0, "ground outside the occluder keeps shadow"
+
+
+def test_add_contact_shadow_uses_prebuilt_footprint():
+    from realinject.harmonize import shadow
+
+    t = _target_box()
+    fp = shadow.build_footprint(t, blur=0)
+    fp[:] = 0.0                        # gated away entirely
+    img = np.full((*t.shape, 3), 200, np.uint8)
+    out = shadow.add_contact_shadow(img, t, strength=0.9, footprint=fp)
+    assert np.array_equal(out, img), "empty footprint must not darken"

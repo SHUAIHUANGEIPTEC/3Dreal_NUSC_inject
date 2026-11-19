@@ -19,9 +19,8 @@ import numpy as np
 from ..assets.convert import mesh_to_gaussians, points_to_gaussians
 from ..gauss.lidar_splat import cloud_to_lidar_payload
 from ..gauss.model import GaussianCloud
-from ..gauss.raster_cpu import RenderOut, render_gaussians
-from ..gauss.render import save_rgba_png
-from . import bridge, composite_ext, validate_ext
+from ..gauss.raster_cpu import RenderOut
+from . import bridge, composite_ext, placement, validate_ext
 
 log = logging.getLogger("pipeline_gauss")
 
@@ -116,6 +115,16 @@ def run_sample(cfg: dict, meta, sample_index: int, objects: list,
             raw_bbox=(raw_min, raw_size),
             model_verts=np.asarray(cloud.xyz, dtype=float),
         )
+        # Re-seat fresh placements on the robust ground estimate: build_gt's
+        # fixed percentile floats the object when elevated clutter (parked
+        # truck) dominates the search circle. Frozen from_global poses are
+        # skipped so a track keeps one world pose across frames.
+        if "from_global" not in o["placement_cfg"]:
+            shifted = placement.resnap_ground(gt, scene_pts, cfg)
+            if abs(shifted) > 1e-9:
+                log.info("ground resnap %s: %+.3f m (ground_z=%.3f)",
+                         o["model_cfg"].get("asset_id", "?"), shifted,
+                         gt["ground_z_lidar"])
         gts.append(gt)
 
     def _payload():
@@ -188,10 +197,15 @@ def run_sample(cfg: dict, meta, sample_index: int, objects: list,
         name = c["name"]
         cam_spec = cam_specs[name]
         renders = []
+        # get_renderer honours gaussian.render.backend (gsplat on CUDA, cpu
+        # fallback): importing raster_cpu directly here silently pinned every
+        # render to the CPU COO rasterizer no matter what the config said.
+        from ..gauss.render import get_renderer, save_rgba_png
+        render_one = get_renderer(cfg)
         for o, gt in zip(objects, gts, strict=True):
             cloud = cloud_cache[o["model_cfg"]["path"]]
             t_m2g = np.array(gt["T_model2global"], dtype=float).reshape(4, 4)
-            renders.append(render_gaussians(cam_spec, cloud, t_m2g, cfg))
+            renders.append(render_one(cam_spec, cloud, t_m2g, cfg))
         merged = merge_renders(renders)
         save_rgba_png(gauss_dir / f"{name}.png", merged)
         np.save(depth_dir / f"{name}_obj_depth.npy", merged.depth)
@@ -229,7 +243,8 @@ def run_sample(cfg: dict, meta, sample_index: int, objects: list,
         raise SystemExit("FATAL: no camera composited")
 
     # ---- Step 4: validation (upstream + gaussian-specific) ----
-    report = validate_ext.run_ext(cfg, gts, lr, cam_result, per_cam)
+    report = validate_ext.run_ext(cfg, gts, lr, cam_result, per_cam,
+                                  scene_pts=scene_pts)
     with open(out_dir / "validation_report.json", "w") as f:
         json.dump(report, f, indent=2, default=float)
     log.info("validation all_pass=%s", report["all_pass"])

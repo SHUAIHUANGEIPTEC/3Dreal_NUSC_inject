@@ -190,6 +190,9 @@ def canonicalize_realcar(
         "yaw_deg": float(np.degrees(yaw)),
         "texture_path": str(tex_path.relative_to(Path(meshes_root).resolve())),
         "texture_std": float(colors.std() * 255.0),
+        # UV-sampled near-black fraction (colors are float 0..1): catches
+        # atlases whose unpainted black regions the body UVs land on
+        "texture_black_frac": float((colors.max(axis=1) < 20.0 / 255.0).mean()),
         "aabb_extent": tuple(
             float(v) for v in (verts_yup.max(axis=0) - verts_yup.min(axis=0))
         ),

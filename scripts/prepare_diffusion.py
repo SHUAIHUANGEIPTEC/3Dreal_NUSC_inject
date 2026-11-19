@@ -69,6 +69,14 @@ def main(argv: list[str] | None = None) -> int:
         if route in FRAME_ROUTES:
             assert gauss_hit, f"{route}: condition not traced to /gauss/ frames"
             print("  gauss trace: OK")
+        # rewrite command.sh with project-relative package paths: the package
+        # is copied to a GPU server whose absolute prefix differs
+        try:
+            rel = pkg.path.relative_to(ROOT)
+            text = pkg.command.read_text().replace(str(pkg.path), str(rel))
+            pkg.command.write_text(text)
+        except ValueError:
+            pass  # package outside the project tree: keep absolute
         result = backend.run_local(pkg.path)
         print(f"  run_local: {result['status']} ({result.get('note', '')})")
         n_ok += 1

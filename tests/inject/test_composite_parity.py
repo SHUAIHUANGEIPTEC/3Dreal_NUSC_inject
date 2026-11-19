@@ -20,8 +20,18 @@ def cfg():
 
 
 def _inject_root():
+    """Upstream repo root: local.yaml override first, sibling dir as fallback."""
     from pathlib import Path
 
+    from realinject.paths import PROJECT_ROOT, resolve
+
+    local = PROJECT_ROOT / "local.yaml"
+    if local.exists():
+        import yaml
+
+        node = (yaml.safe_load(local.read_text()) or {}).get("inject_nusc", {})
+        if node.get("root"):
+            return resolve(node["root"])
     root = Path(__file__).resolve().parents[2]
     return root.parent / "nusc-inject"
 

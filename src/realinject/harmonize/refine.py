@@ -48,22 +48,23 @@ class CPUHarmonizer:
 
             # 0) contact shadow grounds the object (2D approximation)
             if cfg.get("shadow_enabled", True):
-                smap = shadow.build_footprint(
-                    target, blur=int(cfg.get("shadow_blur", 15)),
-                    dx_frac=float(cfg.get("shadow_dx_frac", 0.10)),
-                    dy_frac=float(cfg.get("shadow_dy_frac", 0.13)))
+                blur = int(cfg.get("shadow_blur", 15))
+                dx = float(cfg.get("shadow_dx_frac", 0.10))
+                dy = float(cfg.get("shadow_dy_frac", 0.13))
+                smap = shadow.build_footprint(target, blur, dx, dy)
                 od, sd = f.get("obj_depth"), f.get("scene_depth")
                 if od is not None and sd is not None and target.any():
-                    d_obj = float(np.median(od[target]))
-                    fg_mask = np.isfinite(sd) & (sd < d_obj - 0.5)
-                    smap = np.where(fg_mask, 0.0, smap).astype(np.float32)
+                    # keep the shadow on the road; drop only true near
+                    # foreground occluders (see shadow.foreground_gate)
+                    smap = shadow.foreground_gate(
+                        smap, target, od, sd,
+                        fg_factor=float(cfg.get("shadow_fg_factor", 0.30)))
                 f["shadow_map"] = smap
+                # apply THE SAME gated map the metrics will see
                 raw = shadow.add_contact_shadow(
                     raw, target,
-                    strength=float(cfg.get("shadow_strength", 0.55)),
-                    blur=int(cfg.get("shadow_blur", 15)),
-                    dx_frac=float(cfg.get("shadow_dx_frac", 0.10)),
-                    dy_frac=float(cfg.get("shadow_dy_frac", 0.13)))
+                    strength=float(cfg.get("shadow_strength", 0.40)),
+                    footprint=smap)
 
             # 1) exposure/lightness match of the object onto its surroundings
             #    (identity-preserving: default L channel only)

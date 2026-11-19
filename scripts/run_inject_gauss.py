@@ -1,9 +1,13 @@
 #!/usr/bin/env python
-"""Inject real extracted assets into one nuScenes scene and export it.
+"""Inject real extracted assets into one nuScenes scene, harmonize, export.
 
     conda activate nusc-inject
     python scripts/run_inject_gauss.py --run-id gs01 --scene scene-0061 --samples 5
     python scripts/run_inject_gauss.py --run-id gs01 --skip-export   # batch only
+    python scripts/run_inject_gauss.py --run-id gs01 --skip-harmonize
+
+The e2e flow is batch (inject) -> harmonize (exposure match / contact shadow,
+writes refined/<cam>.jpg + harmonize_report.json) -> export.
 """
 from __future__ import annotations
 
@@ -21,6 +25,28 @@ from realinject.inject import batch, bridge  # noqa: E402
 from realinject.inject.export import export as export_dataset  # noqa: E402
 
 
+def _run_harmonize(cfg: dict, batch_dir: Path, scenes: list[str],
+                   log: logging.Logger) -> None:
+    """P4 two-pass harmonization over the batch just written (e2e step)."""
+    from realinject.harmonize import get_refiner, run_session
+
+    hcfg = dict(paths.load_config("configs/harmonize.yaml").get("harmonize") or {})
+    refiner = get_refiner(str(hcfg.get("refiner", "cpu")), cfg=hcfg)
+    cams = cfg.get("cam_channels") or [
+        "CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT",
+        "CAM_BACK", "CAM_BACK_LEFT", "CAM_BACK_RIGHT"]
+    for scene in scenes:
+        report = run_session(batch_dir, scene, cams, hcfg, refiner)
+        for cam, m in sorted((report.get("scenes") or {}).get(scene, {}).items()):
+            log.info("  harmonize %s: dE(target,ring) %.1f -> %.1f, "
+                     "dL %.1f -> %.1f", cam,
+                     m.get("dE_target_ring_before", float("nan")),
+                     m.get("dE_target_ring_after", float("nan")),
+                     m.get("lightness_gap_before", float("nan")),
+                     m.get("lightness_gap_after", float("nan")))
+    log.info("harmonize: report at %s", batch_dir / "harmonize_report.json")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--config", default="configs/inject_gauss.yaml")
@@ -33,6 +59,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="comma-separated asset_ids to place "
                          "(e.g. av2/DOG_03ce7747,av2/STROLLER_e55913c8)")
     ap.add_argument("--skip-export", action="store_true")
+    ap.add_argument("--skip-harmonize", action="store_true",
+                    help="skip the P4 harmonization step (refined/ output)")
     args = ap.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
@@ -89,6 +117,10 @@ def main(argv: list[str] | None = None) -> int:
              summary["frames_annotated"], summary["n_tracks_realized"])
     for length, n in sorted(summary.get("track_length_hist", {}).items()):
         log.info("  %d track(s) with %s annotated frames", n, length)
+
+    if not args.skip_harmonize and summary.get("frames_annotated"):
+        log.info("harmonize: exposure match + contact shadow -> refined/")
+        _run_harmonize(cfg, batch_dir, summary.get("scenes") or [], log)
 
     if args.skip_export:
         log.info("skip export; specs at %s", batch_dir / "specs.json")

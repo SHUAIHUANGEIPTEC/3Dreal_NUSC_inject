@@ -12,12 +12,17 @@ are specific to the Gaussian path:
   point support;
 - ``box_encloses_mask``: >= 95% of mask pixels inside the projected 3D box
   AABB — catches axis swaps the bbox itself cannot see (symmetric boxes);
+- ``ground_contact``: object bbox bottom within ``ground_contact_max_m`` of
+  the robust local ground — catches placements floating on elevated clutter
+  (needs ``scene_pts``; skipped when not provided);
 - ``multicam_overlap``: for pixels visible in >= 2 cameras, mask IoU > 0.6
   (informational; reported, not gated).
 """
 from __future__ import annotations
 
 import numpy as np
+
+from .placement import robust_ground_z
 
 
 def _project(pts_cam: np.ndarray, k: np.ndarray, width: int, height: int,
@@ -45,8 +50,12 @@ def _project(pts_cam: np.ndarray, k: np.ndarray, width: int, height: int,
 
 
 def run_ext(cfg: dict, gts: list, lidar_result: dict, cam_result: dict,
-            per_cam: dict) -> dict:
-    """Upstream validation + Gaussian-specific checks; returns the report dict."""
+            per_cam: dict, scene_pts: np.ndarray | None = None) -> dict:
+    """Upstream validation + Gaussian-specific checks; returns the report dict.
+
+    ``scene_pts``: (N,>=3) scene cloud in the LIDAR frame; when given, the
+    ground-contact check is evaluated (otherwise skipped as not evaluable).
+    """
     from nusc_inject import transforms as tf
     from nusc_inject import validate as validate
 
@@ -58,8 +67,21 @@ def run_ext(cfg: dict, gts: list, lidar_result: dict, cam_result: dict,
     depth_thr = float(cfg.get("validation", {}).get("gauss_depth_vs_lidar_m", 0.5))
     # density ratio is viewpoint-dependent (camera sees one side, LiDAR the
     # other), so the band only catches gross collapse (~0 hits) / inflation,
-    # not fine density matching — coverage + enclosure are the binding checks
+    # not fine density matching — coverage + enclosure are the binding checks.
+    # A camera that only frames a clipped sliver of the object (edge-clipped
+    # side view) can carry 2 LiDAR hits over 4k silhouette px: below min_hits
+    # the ratio measures how much of the body sits OUTSIDE this camera, not
+    # splat quality — same "not evaluable" semantics as upstream coverage.
     density_lo, density_hi = 0.001, 5.0
+    density_min_hits = int(cfg.get("validation", {}).get(
+        "silhouette_density_min_hits", 5))
+    # depth parity is only meaningful where OUR pixels actually reach the
+    # output: on scene-occluded pixels the compositor replaces the splat with
+    # scene geometry, so splat-vs-LiDAR depth there reflects occlusion-edge
+    # mixing, not camera/scale bugs. Small visible subsets are too noisy for
+    # a median as well — require a sample floor like upstream coverage.
+    depth_min_hits = int(cfg.get("validation", {}).get(
+        "gauss_depth_min_hits", 50))
     enclosure_thr = float(cfg.get("validation", {}).get("box_encloses_mask", 0.95))
 
     gauss_checks = {}
@@ -73,14 +95,14 @@ def run_ext(cfg: dict, gts: list, lidar_result: dict, cam_result: dict,
             np.array(cam_spec["T_cam2global"], dtype=float).reshape(4, 4))
         h, w = pc["alpha"].shape
 
-        # (i) gauss depth vs lidar depth along the same ray
+        # (i) gauss depth vs lidar depth along the same ray, VISIBLE pixels only
         pts_c = tf.transform_pts(t_g2c, tf.transform_pts(t_l2g, obj_pts[:, :3]))
         proj = _project(pts_c, k, w, h)
         if proj is not None:
             ui, vi, z = proj
             gd = pc["obj_depth"][vi, ui]
-            finite = np.isfinite(gd) & (z < 80.0)
-            if finite.any():
+            finite = np.isfinite(gd) & (z < 80.0) & pc["visible"][vi, ui]
+            if int(finite.sum()) >= depth_min_hits:
                 depth_diffs.append(float(np.median(np.abs(gd[finite] - z[finite]))))
 
         # (ii) silhouette density: object-LiDAR hits per silhouette pixel.
@@ -91,8 +113,9 @@ def run_ext(cfg: dict, gts: list, lidar_result: dict, cam_result: dict,
         if proj is not None and n_alpha > 0 and n_visible > 0:
             ui, vi, _z = proj
             hit = pc["visible"][vi, ui]
-            ratio = float(hit.sum()) / float(n_alpha)
-            density_ratios.append(ratio)
+            n_hits = int(hit.sum())
+            if n_hits >= density_min_hits:
+                density_ratios.append(float(n_hits) / float(n_alpha))
 
         # (iii) projected box AABB must enclose the mask.
         # Corners are NOT clipped to the frame: a box extending past the image
@@ -135,6 +158,7 @@ def run_ext(cfg: dict, gts: list, lidar_result: dict, cam_result: dict,
         "evaluable": bool(enclosures),
         "pass": (not enclosures) or min(enclosures) >= enclosure_thr,
     }
+    gauss_checks["ground_contact"] = _ground_contact(cfg, gts, scene_pts)
     gauss_checks["multicam_overlap"] = _multicam_overlap(per_cam)
 
     checks["gauss_ext"] = gauss_checks
@@ -157,6 +181,42 @@ def _box_corners(gts: list) -> np.ndarray:
         pts = (corners * raw_size + raw_min) * scale
         out.append(pts @ t[:3, :3].T + t[:3, 3])
     return np.vstack(out)
+
+
+def _ground_contact(cfg: dict, gts: list,
+                    scene_pts: np.ndarray | None) -> dict:
+    """Bbox bottom vs robust local ground, per object (lidar frame).
+
+    Floats > ground_contact_max_m fail: the classic bug is build_gt's fixed
+    percentile landing on elevated clutter (parked truck) so the object hovers.
+    """
+    max_gap = float(cfg.get("validation", {}).get("ground_contact_max_m", 0.35))
+    if scene_pts is None:
+        return {"max_gap_m": max_gap, "gap_m": [], "evaluable": False,
+                "pass": True}
+
+    gaps = []
+    for gt in gts:
+        t_m2l = np.array(gt["T_model2lidar"], dtype=float).reshape(4, 4)
+        raw_min = np.array(gt["raw_bbox_min"], dtype=float)
+        raw_size = np.array(gt["raw_bbox_size"], dtype=float)
+        scale = float(gt.get("scale", 1.0))
+        corners = np.array([[x, y, z] for x in (0, 1) for y in (0, 1)
+                            for z in (0, 1)], dtype=float)
+        pts_l = ((corners * raw_size + raw_min) * scale) @ t_m2l[:3, :3].T \
+            + t_m2l[:3, 3]
+        bottom_z = float(pts_l[:, 2].min())
+        # ground under the box centre (same estimator as the resnap)
+        centre = pts_l.mean(axis=0)
+        ground = robust_ground_z(scene_pts, float(centre[0]),
+                                 float(centre[1]))
+        gaps.append(bottom_z - ground)
+    return {
+        "max_gap_m": max_gap,
+        "gap_m": [round(g, 3) for g in gaps],
+        "evaluable": True,
+        "pass": all(g <= max_gap for g in gaps),
+    }
 
 
 def _multicam_overlap(per_cam: dict) -> dict:

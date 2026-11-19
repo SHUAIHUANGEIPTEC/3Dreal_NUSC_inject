@@ -60,7 +60,8 @@ def ingest_realcar(assets_root: str | Path, library_root: str | Path,
 
         entry = manifest.get(scene)
         passed, reasons = quality.gate_realcar(
-            stats["dims_lwh_m"], stats["texture_std"], entry, cfg.get("gates"))
+            stats["dims_lwh_m"], stats["texture_std"], entry, cfg.get("gates"),
+            texture_black_frac=stats.get("texture_black_frac"))
         meta = _read_meta(scene_dir / "meta.json")
 
         # route-D completion (fan hole fill): swap in the completed mesh and
@@ -97,6 +98,7 @@ def ingest_realcar(assets_root: str | Path, library_root: str | Path,
                 "boundary_edges": stats["boundary_edges"],
                 "watertight": stats["watertight"],
                 "texture_std": stats["texture_std"],
+                "texture_black_frac": stats.get("texture_black_frac"),
                 "yaw_deg": stats["yaw_deg"],
                 "aabb_extent": stats["aabb_extent"],
                 "meta_dims": meta.get("dims"),

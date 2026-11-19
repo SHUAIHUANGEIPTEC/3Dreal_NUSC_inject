@@ -33,7 +33,9 @@ harmonize:
   noise_enabled: true
   unsharp_amount: 0.3
   shadow_enabled: true
-  shadow_strength: 0.55
+  shadow_strength: 0.40     # was 0.55: 45% darkening read as a black pancake
   shadow_blur: 15
   shadow_dx_frac: 0.10
   shadow_dy_frac: 0.13
+  shadow_fg_factor: 0.30    # drop shadow only where scene_depth < 0.3 * contact
+                            # distance (true foreground); ground always kept

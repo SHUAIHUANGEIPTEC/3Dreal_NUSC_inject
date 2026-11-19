@@ -26,13 +26,19 @@ nuScenes 的 LiDAR 与 6 路相机，产出：
 ## 快速开始
 
 ```bash
-conda activate nusc-inject          # 共享环境：numpy/trimesh/cv2/scipy/pytest
+conda activate nusc-inject-ood      # 共享环境（含 torch+gsplat GPU 渲染链）
 
 cp local.yaml.example local.yaml    # 填本机路径（gitignored）
+# 资产不在本机时（网源替代，见 docs/UPSTREAM_DOWNSTREAM.md）：
+#   python scripts/fetch_net_assets.py      # Objaverse 车辆 -> realcar_assets/
+#   python scripts/make_nusc_track_clouds.py # 本地 nuScenes -> av2_assets/
 python scripts/build_asset_library.py   # 资产库 → data/library/
 python -m pytest -q                     # 单测（缺数据集自动 skip）
 bash scripts/lint.sh                    # 卫生门禁
 ```
+
+GPU 端到端（gsplat @ 本机 CUDA）与上游 `ood_nuscenes` 双层注入的复现命令见
+**[docs/UPSTREAM_DOWNSTREAM.md](docs/UPSTREAM_DOWNSTREAM.md)**。
 
 ## 目录结构
 

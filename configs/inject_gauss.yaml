@@ -61,6 +61,19 @@ validation:
   max_size_m: 40.0
   gauss_depth_vs_lidar_m: 0.5
   box_encloses_mask: 0.95
+  ground_contact_max_m: 0.35   # bbox bottom vs robust local ground
+
+# robust ground re-snap after anchor.build_gt (placement.py::resnap_ground):
+# build_gt's fixed percentile floats objects when elevated clutter (parked
+# truck) dominates the search circle; the resnap re-seats fresh placements
+# on the low-tail ground estimate (frozen from_global poses are never touched).
+ground_resnap:
+  enabled: true
+  radius_m: 6.0
+  band_m: 0.4
+  seed_pct: 2.0
+  max_shift_m: 6.0        # confident ground-band estimate
+  max_shift_weak_m: 0.3   # band fell back to neighbourhood median
 
 annotation:
   category_name: movable_object.anomaly   # per-object category overrides this
@@ -91,13 +104,20 @@ objects:
   tracking:
     count: 2
     length: [4, 8]
+    # start farther and off-axis: a world-frozen target at 12 m is driven up
+    # to within ~5 m inside a 5-frame window, which smears the silhouette
+    # across half the frame and blows up gauss_depth_vs_lidar there. 24-36 m
+    # keeps the whole 5-frame window outside the ego-target interchange zone.
+    forward_range_m: [24.0, 36.0]
+    lateral_range_m: [1.5, 5.0]
   ground:
     search_radius_m: 4.0
     z_percentile: 15.0
 
 gaussian:
   render:
-    backend: cpu
+    backend: gsplat               # GPU (CUDA); falls back to cpu without gsplat
+    ssaa: 2                       # supersampling factor (both backends)
   lidar:
     n_dense: 60000
     normal_knn: 16
