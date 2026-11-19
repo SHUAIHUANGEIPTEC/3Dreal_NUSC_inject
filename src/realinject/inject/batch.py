@@ -1,8 +1,8 @@
 """Batch driver: cross-frame tracking over scenes, then one export.
 
 Ports the ``run_batch.run_tracking`` loop semantics (frozen world pose per
-track, prev/next via track keys, terminate on invisible/no-camera/validation
-failure) onto ``pipeline_gauss.run_sample``.
+track, prev/next via track keys, terminate on invisible; close only pose-less
+tracks on no-camera/validation failure) onto ``pipeline_gauss.run_sample``.
 """
 from __future__ import annotations
 
@@ -80,11 +80,14 @@ def run_tracking(cfg: dict, meta, records: list, batch_dir: Path,
                 log.info("  frame %d: all tracks invisible -> close", fi)
                 continue
             if status in ("no_camera", "validation_failed"):
+                closed = 0
                 for t in active:
-                    t["terminated"] = True
-                    t["end_reason"] = status
-                log.info("  frame %d: %s -> close %d tracks",
-                         fi, status, len(active))
+                    if t["T"] is None:
+                        t["terminated"] = True
+                        t["end_reason"] = status
+                        closed += 1
+                log.info("  frame %d: %s -> close %d pose-less tracks",
+                         fi, status, closed)
                 continue
 
             for t in active:
