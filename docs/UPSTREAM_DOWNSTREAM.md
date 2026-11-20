@@ -19,7 +19,8 @@ conda activate nusc-inject-ood
 dataset:
   root: /home/ismr01/datasets/nuScenes          # 原始 v1.0-mini（软链）
 assets:
-  root: /home/ismr01/projects/3D-assets         # 3D 资产落地目录（网源，见下）
+  root: /srv/shared_data/3D_assets                # 3D 资产统一根（2026-11-20 迁入，
+                                                   #  含 glb_sources -> 共享 road_ood GLB 库软链）
 inject_nusc:
   root: /home/ismr01/projects/nusc-inject       # 上游几何注入库（只读）
 ```
@@ -35,16 +36,19 @@ inject_nusc:
 #    manifest L/W/H 与 canonicalize_realcar 同函数计算 -> bbox 交叉核对零误差
 python scripts/fetch_net_assets.py --classes "car,sports_car,truck,cab_(taxi),van,..." \
         --want 15 --max-try 80 --min-mb 0.3
-#    -> /home/ismr01/projects/3D-assets/realcar_assets/ (7 辆过门禁) + manifest
+#    -> /srv/shared_data/3D_assets/realcar_assets/ (7 辆过门禁) + manifest
 
 # 2) 本地 nuScenes 聚合物体轨迹点云 -> av2_assets/_merged/ 同 npz 契约
 #    (pts/intensity/dims/ego/cat + manifest: n/az_span/pts_per_m2/coverage)
 python scripts/make_nusc_track_clouds.py --top-per-class 6
 #    -> 6 条 REGULAR_VEHICLE 轨迹全部过 av2 门禁
 
-# 3) 资产库（质量门禁 -> canonical npz + assets_manifest.json）
+# 3) 资产库（三源摄入：realcar 网格 + av2 点云 + glb_sources 的 GLB，
+#    质量门禁 -> canonical npz + assets_manifest.json）
 python scripts/build_asset_library.py
-#    -> data/library: 13 records / 11 passed（黑率门禁拒 2 台：285af8e9 / 57e3a3a1）
+#    -> GLB 首次构建逐个转 canonical/glb/*.npz（~1-2 小时，之后按 mtime 缓存）；
+#       GLB 记录 kind=glb_mesh、默认不发牌，须 --assets glb/<stem> 显式选用
+#    -> 逐源计数见输出与 data/library/gates_report.json
 
 # 4) P5-D CPU 补全（可选；先重建刷新 az 数值门候选，完成后重建并回 manifest）
 python scripts/complete_assets.py

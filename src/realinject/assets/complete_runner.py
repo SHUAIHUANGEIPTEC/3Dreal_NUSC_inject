@@ -121,7 +121,7 @@ def run_completion(records: list[AssetRecord], library_root,
     details = []
     for rec in records:
         info = None
-        if realcar and rec.kind == "realcar_mesh":
+        if realcar and rec.kind in ("realcar_mesh", "glb_mesh"):
             # texture/dimension gates can't be fixed by hole-fill — only
             # passed meshes are worth re-meshing
             if not rec.quality.get("passed"):

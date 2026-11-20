@@ -1,16 +1,10 @@
 """GLB -> canonical mesh npz adapter contract."""
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import numpy as np
 import pytest
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
-
-from scripts import glb_to_npz as conv  # noqa: E402
+from realinject.assets import glb_convert as conv
 
 
 def _box_arrays():

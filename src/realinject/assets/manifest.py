@@ -22,7 +22,7 @@ class AssetRecord:
     """One normalized, injectable asset."""
 
     asset_id: str  # "realcar/2024_06_04_13_44_39" | "av2/DOG_03ce7747"
-    kind: str  # "realcar_mesh" | "av2_cloud"
+    kind: str  # "realcar_mesh" | "glb_mesh" | "av2_cloud"
     source_path: str  # relative to assets.root
     canonical_path: str  # relative to library.path
     category: str  # nuScenes category string for the annotation export

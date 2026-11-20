@@ -12,6 +12,10 @@
 | 3DRealCar 裁剪资产 | `mesh.obj` + `mesh.jpg`(4096²) + `mesh.mtl` + `meta.json` | 199 套（A 档 158） | iPhone 扫描重建，车顶/玻璃系统性缺失；导出为 Y-up、绕 Y 轴约 45° 斜置 |
 | Argoverse2 轨迹点云 | `<CAT>_<id>.npz`（pts/intensity/dims/ego/cat） | 24 条（7 类） | 稀疏半壳聚合，物体局部系、Z-up、bbox 居中；`_merged/manifest.json` 给逐 track 统计 |
 | AV2 条件图 | `av2_assets/<scene>/view/<CAT>_<id>.png` | 部分 track | 832×704 RGBA，供 GPU 补全路线做单视图条件 |
+| **GLB（road_ood/Objaverse）** | `<name>.glb` + `<name>.json` | 3498 个 / 120 类 | 贴图 PBR 网格；服务器经 `glb_sources/` 软链进库（见 `3D_assets/README.md`），转换后 `kind=glb_mesh` |
+
+> 源资产统一落位（2026-11-20 迁移）：`/srv/shared_data/3D_assets/`
+> （`realcar_assets/` + `av2_assets/` + `glb_sources → Objaverse_v1_assets`；旧路径为兼容软链）。
 
 ## 规范化（`src/realinject/assets/normalize.py`）
 
@@ -33,6 +37,8 @@ realcar：仅 A 档；OBB 尺寸 L∈[3.5,6.5]、W∈[1.4,2.6]、H∈[1.0,2.0] m
 AV2：点数≥300、方位跨度≥90°、点密度≥150 点/m²、覆盖率≥0.01；方位跨度≥200°
 额外标记为**补全候选**（纯数值门——旧实现的 `cat==DOG` 特例把全部车辆挡在
 CPU/GPU 补全路线之外）。
+GLB（`gates.glb`）：无扫描等级/无外部清单，只查尺寸 sanity 窗 L/W/H∈[0.05,40] m
+（单位坏的 4 km "Dog" 死在上限）+ 与 realcar 相同的纹理 std/黑率门。
 
 ## 产物
 
@@ -41,6 +47,7 @@ CPU/GPU 补全路线之外）。
 ```
 canonical/realcar/<scene>.npz   # verts/faces/uv/normals/colors + raw_bbox
 canonical/av2/<CAT>_<id>.npz    # xyz/intensity/ego/box_lwh
+canonical/glb/<stem>.npz        # GLB 转换缓存（mtime 比 glb 新则跳过重转）
 completed/realcar/<key>.npz     # P5-D CPU 补洞后的新 canonical（fan_fill）
 completed/av2/<key>.npz         # 半壳镜像 + 凸包闭合代理（2 万点，原壳存 shell_xyz）
 assets_manifest.json            # schema 3dreal-assets/1（唯一索引）

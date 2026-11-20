@@ -25,6 +25,16 @@ DEFAULT_GATES: dict = {
         "min_coverage": 0.01,
         "completion_min_az_span_deg": 200.0,  # DOG only: eligible for GPU completion
     },
+    "glb": {
+        # Objaverse/road_ood props: wide sanity window (unit-broken models
+        # like the 4-km "Dog" die on the upper bound); texture gates match
+        # realcar. No scan grade / no external manifest for this source.
+        "l_range": [0.05, 40.0],
+        "w_range": [0.05, 40.0],
+        "h_range": [0.05, 40.0],
+        "min_texture_std": 5.0,
+        "max_texture_black_frac": 0.05,
+    },
 }
 
 
@@ -88,6 +98,21 @@ def gate_realcar(dims_lwh: tuple[float, float, float], texture_std: float,
                 if rel > tol:
                     reasons.append(f"bbox_disagrees_{axis}:{ours:.2f}vs{ref}")
     return not reasons, reasons
+
+
+def gate_glb(dims_lwh: tuple[float, float, float], texture_std: float,
+             gates: dict | None = None,
+             texture_black_frac: float | None = None,
+             ) -> tuple[bool, list[str]]:
+    """Gate one GLB-sourced mesh (Objaverse / road_ood).
+
+    Delegates to :func:`gate_realcar` with the ``glb`` window and no external
+    manifest entry (no scan grade, no manifest bbox to disagree with) — the
+    texture / black-fraction guards stay identical.
+    """
+    g = _merge(DEFAULT_GATES["glb"], (gates or {}).get("glb"))
+    return gate_realcar(dims_lwh, texture_std, None, {"realcar": g},
+                        texture_black_frac=texture_black_frac)
 
 
 def gate_av2(entry: dict, gates: dict | None = None) -> tuple[bool, list[str]]:

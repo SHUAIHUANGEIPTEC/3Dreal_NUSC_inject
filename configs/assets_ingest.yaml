@@ -1,5 +1,6 @@
-# Asset library build: ingest 3DRealCar crops + Argoverse2 track clouds,
-# normalize into the canonical frame, apply quality gates, write the manifest.
+# Asset library build: ingest 3DRealCar crops + Argoverse2 track clouds +
+# GLB sources (road_ood / Objaverse), normalize into the canonical frame,
+# apply quality gates, write the manifest.
 
 assets:
   root: ${ASSETS_ROOT}              # overridden by local.yaml
@@ -7,6 +8,8 @@ assets:
   realcar_manifest: realcar_assets_manifest.json
   av2_dir: av2_assets/_merged
   av2_scene_dir: av2_assets
+  glb_dir: glb_sources              # relative to root; server: symlink to the
+                                    # shared road_ood library (see 3D_assets/README)
 
 library:
   path: data/library
@@ -26,6 +29,14 @@ gates:
     min_pts_per_m2: 150.0
     min_coverage: 0.01
     completion_min_az_span_deg: 200.0
+  glb:
+    # wide sanity window: unit-broken models (4-km "Dog") die on the upper
+    # bound; texture guards identical to realcar
+    l_range: [0.05, 40.0]
+    w_range: [0.05, 40.0]
+    h_range: [0.05, 40.0]
+    min_texture_std: 5.0
+    max_texture_black_frac: 0.05
 
 gaussian_init:
   mesh_samples: 120000

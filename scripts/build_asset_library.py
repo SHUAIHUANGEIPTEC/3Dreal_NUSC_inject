@@ -20,6 +20,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from realinject import paths  # noqa: E402
 from realinject.assets.ingest_av2 import ingest_av2  # noqa: E402
+from realinject.assets.ingest_glb import ingest_glb  # noqa: E402
 from realinject.assets.ingest_realcar import ingest_realcar  # noqa: E402
 from realinject.assets.manifest import AssetLibrary  # noqa: E402
 
@@ -66,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
 
     records = ingest_realcar(assets_root, library_root, ingest_cfg, limit=args.limit)
     records += ingest_av2(assets_root, library_root, ingest_cfg, limit=args.limit)
+    records += ingest_glb(assets_root, library_root, ingest_cfg, limit=args.limit)
 
     lib = AssetLibrary(
         records,

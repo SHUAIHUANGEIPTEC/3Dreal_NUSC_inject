@@ -121,7 +121,7 @@ def record_to_cloud(record, library_root: str | Path, cfg: dict | None = None) -
     npz = Path(library_root) / record.canonical_path
     with np.load(npz) as data:
         canon = {k: data[k] for k in data.files}
-    if record.kind == "realcar_mesh":
+    if record.kind in ("realcar_mesh", "glb_mesh"):
         cloud = mesh_to_gaussians(canon, cfg)
     elif record.kind == "av2_cloud":
         cloud = points_to_gaussians(canon, cfg)
