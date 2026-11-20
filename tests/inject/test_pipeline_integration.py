@@ -24,7 +24,8 @@ def test_scene0061_five_frames_and_export(dataset_root, tmp_path):
 
     library_root = paths.resolve((cfg.get("library") or {}).get("path", "data/library"))
     lib = AssetLibrary.load(library_root / "assets_manifest.json")
-    records = lib.passed()
+    # mirror the CLI default pool: glb_mesh is opt-in (--assets glb/<stem>)
+    records = [r for r in lib.passed() if r.kind != "glb_mesh"]
     assert records, "asset library must contain passed records"
 
     meta = nusc_io.NuScenesMini(cfg["dataset"]["root"], cfg["dataset"]["version"])
