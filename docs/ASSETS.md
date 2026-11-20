@@ -28,9 +28,11 @@ X=车长 / Y=车宽 / Z=车高。
 ## 质量门禁（`quality.py`）
 
 realcar：仅 A 档；OBB 尺寸 L∈[3.5,6.5]、W∈[1.4,2.6]、H∈[1.0,2.0] m；纹理非退化
-（std>5）；与清单 L/W/H 偏差 ≤20%（不一致记 `bbox_disagrees_*`）。
-AV2：点数≥300、方位跨度≥90°、点密度≥150 点/m²、覆盖率≥0.01；DOG 且方位跨度≥200°
-额外标记为**补全候选**（GPU 单视图 3D 生成路线）。
+（std>5）且 UV 采样黑区占比 ≤5%（`max_texture_black_frac`——网源 2 图重建的
+52% 黑斑车即被此门拒收）；与清单 L/W/H 偏差 ≤20%（不一致记 `bbox_disagrees_*`）。
+AV2：点数≥300、方位跨度≥90°、点密度≥150 点/m²、覆盖率≥0.01；方位跨度≥200°
+额外标记为**补全候选**（纯数值门——旧实现的 `cat==DOG` 特例把全部车辆挡在
+CPU/GPU 补全路线之外）。
 
 ## 产物
 
@@ -39,13 +41,25 @@ AV2：点数≥300、方位跨度≥90°、点密度≥150 点/m²、覆盖率�
 ```
 canonical/realcar/<scene>.npz   # verts/faces/uv/normals/colors + raw_bbox
 canonical/av2/<CAT>_<id>.npz    # xyz/intensity/ego/box_lwh
+completed/realcar/<key>.npz     # P5-D CPU 补洞后的新 canonical（fan_fill）
+completed/av2/<key>.npz         # 半壳镜像 + 凸包闭合代理（2 万点，原壳存 shell_xyz）
 assets_manifest.json            # schema 3dreal-assets/1（唯一索引）
 gates_report.json               # 逐资产门禁结论 + 拒绝原因直方图
+completion_report.json          # 补全跑批明细（逐资产方法/环路数/边界边）
 ```
+
+补全后的 canonical 会**替换** manifest 里的 `canonical_path`，质量门禁在合并视图上
+重跑（当前基线：13 条记录、11 过门、10 条已完成补全——5 fan_fill + 5 闭合代理，
+az<200° 的 1 条按数值门跳过）。
 
 ## 复现
 
 ```bash
 python scripts/build_asset_library.py            # 全量
 python scripts/build_asset_library.py --limit 5  # 冒烟
+
+# P5-D 补全跑批（CPU：realcar 洞填充 + av2 半壳闭合；GPU 生成式路线待权重）
+python scripts/build_asset_library.py            # 先重建，刷新补全候选（az 门）
+python scripts/complete_assets.py                # 写 completed/ + completion_report
+python scripts/build_asset_library.py            # 再重建，把 completed/ 并回 manifest
 ```

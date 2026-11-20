@@ -45,6 +45,11 @@ python scripts/make_nusc_track_clouds.py --top-per-class 6
 # 3) 资产库（质量门禁 -> canonical npz + assets_manifest.json）
 python scripts/build_asset_library.py
 #    -> data/library: 13 records / 11 passed（黑率门禁拒 2 台：285af8e9 / 57e3a3a1）
+
+# 4) P5-D CPU 补全（可选；先重建刷新 az 数值门候选，完成后重建并回 manifest）
+python scripts/complete_assets.py
+python scripts/build_asset_library.py
+#    -> 10/13 completed（5 fan_fill + 5 半壳闭合代理，0 失败）
 ```
 
 ## GPU（gsplat @ RTX 5090）

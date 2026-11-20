@@ -67,13 +67,19 @@ devkit verify ok。和谐化在 4 路相机上改善曝光（AV2 资产被更多
 ![和谐化 A/B](figures/fig_harmonize_ab.png)
 
 *scene-0061 f004 CAM_FRONT：合成（前）→ 区域（红=目标、蓝=背景环）→ 精修（后）。
-两遍法：pass A 逐帧 LAB 曝光统计 + 时域平滑（anti-flicker）→ pass B 精修
-（接触阴影 + 边缘软化 + 噪声/锐化）。帧源 = 高斯渲染的 `gauss/<cam>.png`。*
+两遍法：pass A 逐帧 LAB 统计 + 时域平滑（anti-flicker）→ pass B 精修
+（LAB 增益 + 接触阴影 + 边缘软化 + 噪声/锐化）。帧源 = 高斯渲染的 `gauss/<cam>.png`。
+LAB 阶段现为 `lab_channels [L,a,b]` + `lab_weights {L:1, a:0.5, b:0.5}`——
+只压 L 会在低亮度下把奶油色车漆压成橄榄色（f004 车体 B 通道 156→38），
+a/b 半权重把颜色拉回「等比压暗」的物理预测附近（B→64），车漆质感调优即此项。*
 
-| 相机 | 曝光 \|dL\| | 色度身份保持 | 闪烁降低 | dE(target,ring) |
+| 批次 | 曝光 \|dL\| | 色度（a/b 半权重） | 闪烁降低 | dE(target,ring) |
 |---|---|---|---|---|
-| CAM_FRONT | 56.6 → 14.0（**75%**） | **100%** | 63% | 56.7 → 15.4 |
-| CAM_FRONT_LEFT | 14.9 → 0.4（**97%**） | 99% | — | 15.2 → 3.2 |
+| gs_e2e_tex（奶油涂装） | 135.4 → 16.6（**88%**） | gap 29.4 → 15.2 | 78% | 138.5 → **22.9** |
+| gs_e2e（av2 灰车） | 58.2 → 7.0（**88%**） | gap 1.2 → 0.7 | 80% | 58.2 → **7.0** |
+
+A/B 存档：`data/outputs/gs_e2e_tex_w30|w50`（权重 0.3 / 0.5 变体），
+对比拼图 `gs_e2e_review/paint_ab/montage_f00{2,4}.png`。
 
 视频：6 路相机 mp4 + `grid_2x3.mp4`，帧源三级回退 `refined → composite → 原图`。
 
@@ -91,6 +97,9 @@ devkit verify ok。和谐化在 4 路相机上改善曝光（AV2 资产被更多
 | E magicdrive | 生成式插入（占位） | specs.json bbox | MagicDrive（需训练） |
 
 所有 `run_local` 返回 `placeholder`；GPU 服务器执行 `command.sh` 后 `collect()` 回填。
+**路线 D 的 CPU 部分已实际跑批**（`complete_assets.py`：5 条 realcar fan_fill 补洞 +
+5 条 av2 半壳镜像凸包闭合，az<200° 1 条按数值门跳过、0 失败；GPU 生成式
+（TRELLIS / Hunyuan3D-2）仍待权重——本机 third_party 只有 ViewCrafter/stag）。
 详见 [GPU_DIFFUSION.md](GPU_DIFFUSION.md)。
 
 ## 7. 验收指标总览
@@ -102,15 +111,16 @@ devkit verify ok。和谐化在 4 路相机上改善曝光（AV2 资产被更多
 | P1 | realcar A 档 / AV2 通过 | **158 / 12**（223 条记录，170 通过） |
 | P2 | 解析球 α 误差 / 渲染耗时 | <15% / **1.13 s**（120k @1600×900） |
 | P3 | 注入 all_pass / 导出校验 | **5/5 帧** / **verify ok（9 条新标注）** |
-| P4 | 和谐化 dE(target,ring) / 闪烁 / 视频 | **58.2→7.2**（gs_e2e）·**138.5→34.1**（gs_e2e_tex），闪烁 −79% / 6 mp4 + 网格 |
-| P5 | 条件包 | **5/5**（3 条 frame 路线 gauss 追溯通过） |
-| 全程 | 测试 / 卫生门禁 | **104 测试全绿（2 skip）** / ruff·pyflakes·pytest·硬编码路径·docs 全绿 |
+| P4 | 和谐化 dE(target,ring) / 闪烁 / 视频 | **58.2→7.0**（gs_e2e）·**138.5→22.9**（gs_e2e_tex），闪烁 −78~80% / 6 mp4 + 网格 |
+| P5 | 条件包 / CPU 补全跑批 | **5/5**（3 条 frame 路线 gauss 追溯通过）/ **10/13**（5 fan_fill + 5 闭合代理，0 失败） |
+| 全程 | 测试 / 卫生门禁 | **105 测试全绿（2 skip）** / ruff·pyflakes·pytest·硬编码路径·docs 全绿 |
 
 ## 8. 已知限制与下一步
 
-- **车顶/玻璃缺失**是 3DRealCar 扫描的固有缺陷：高斯深度图如实呈现；补全走 GPU
-  路线 D（Poisson 已有 CPU 兜底）。
-- **AV2 动物是半壳**：报告结论"补不出耳朵尾巴"，几何补全依赖单视图 3D 生成（路线 D）。
+- **车顶/玻璃缺失**是 3DRealCar 扫描的固有缺陷：高斯深度图如实呈现；CPU fan_fill
+  补洞已跑批（边界边大幅收敛，见 `completion_report.json`），GPU 生成式补面待权重。
+- **AV2 半壳**：CPU 镜像 + 凸包闭合代理已跑批 5 条（原壳存 `shell_xyz`，密度
+  150→496 点/m² 过门）；精细几何（"耳朵尾巴"级）仍依赖单视图 3D 生成（路线 D GPU）。
 - **摆位先验**使注入物多在前视相机：back 相机走原图回退（物理正确）；需要后视注入时
   调 `objects` 的 lateral/forward 范围。
 - **扩散真实感化**（A/B1/C）与 **MagicDrive 生成式插入**（E）待 GPU 服务器实跑；

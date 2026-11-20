@@ -16,12 +16,12 @@ nuScenes 的 LiDAR 与 6 路相机，产出：
 |---|---|---|
 | P0 | 脚手架 / 路径 / 卫生门禁 | ✅ |
 | P1 | 资产规范化与质量门禁（asset library） | ✅ |
-| P2 | 高斯渲染器（CPU EWA + GPU gsplat） | ⏳ |
-| P3 | 单场景注入 + 标准导出 | ⏳ |
-| P4 | 和谐化 + 视频 | ⏳ |
-| P5 | 扩散路线（补全/真实感化/重绘/生成式插入） | ✅（CPU stub + 条件包） |
+| P2 | 高斯渲染器（CPU EWA + GPU gsplat） | ✅（gsplat 后端已生效） |
+| P3 | 单场景注入 + 标准导出 | ✅（devkit verify ok） |
+| P4 | 和谐化 + 视频 | ✅（e2e 自动接续，a/b 车漆调优已落地） |
+| P5 | 扩散路线（补全/真实感化/重绘/生成式插入） | ✅ CPU 补全跑批 10/13；GPU 路线待权重 |
 | P6 | 卫生门禁全量 | ✅（随阶段执行） |
-| P7 | 图文文档 + 发布 | ⏳ |
+| P7 | 图文文档 + 发布 | ✅（v0.1.0 + docs 8 篇） |
 
 ## 快速开始
 
@@ -33,6 +33,8 @@ cp local.yaml.example local.yaml    # 填本机路径（gitignored）
 #   python scripts/fetch_net_assets.py      # Objaverse 车辆 -> realcar_assets/
 #   python scripts/make_nusc_track_clouds.py # 本地 nuScenes -> av2_assets/
 python scripts/build_asset_library.py   # 资产库 → data/library/
+python scripts/complete_assets.py       # P5-D CPU 补全（fan_fill / 半壳闭合）后
+python scripts/build_asset_library.py   #   重建库把 completed/ 并回 manifest
 python -m pytest -q                     # 单测（缺数据集自动 skip）
 bash scripts/lint.sh                    # 卫生门禁
 ```
