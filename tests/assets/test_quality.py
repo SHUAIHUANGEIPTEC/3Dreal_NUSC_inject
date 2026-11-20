@@ -67,10 +67,16 @@ def test_av2_pass_and_fail():
     assert {"too_few_points:19", "az_span_low:4"}.issubset(set(reasons))
 
 
-def test_completion_candidate_only_wide_dogs():
+def test_completion_candidate_by_az_span():
+    # numeric gate only — class no longer matters (vehicles used to be
+    # blocked by the old cat==DOG special-case)
     assert quality.completion_candidate({"cat": "DOG", "az_span_deg": 347})
     assert not quality.completion_candidate({"cat": "DOG", "az_span_deg": 134})
-    assert not quality.completion_candidate({"cat": "STROLLER", "az_span_deg": 300})
+    assert quality.completion_candidate({"cat": "STROLLER", "az_span_deg": 300})
+    assert quality.completion_candidate({"cat": "REGULAR_VEHICLE",
+                                         "az_span_deg": 360})
+    assert not quality.completion_candidate({"cat": "REGULAR_VEHICLE",
+                                             "az_span_deg": 160})
 
 
 def test_gate_override_from_cfg():

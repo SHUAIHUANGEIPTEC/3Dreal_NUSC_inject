@@ -111,13 +111,13 @@ def gate_av2(entry: dict, gates: dict | None = None) -> tuple[bool, list[str]]:
 
 
 def completion_candidate(entry: dict, gates: dict | None = None) -> bool:
-    """DOG tracks wide enough to carry a single-view 3D completion request.
+    """Entry wide enough to carry a single-view 3D completion request.
 
-    Report §7.2: only ~347 deg views show enough of the animal; everything
-    below completion_min_az_span_deg stays a half-shell point asset.
+    The az-span gate is the whole criterion: a track swept over
+    completion_min_az_span_deg has seen the object from enough sides for the
+    mirror+proxy (CPU) or generative (GPU) completion to close it; anything
+    below stays a half-shell point asset. The former ``cat == "DOG"``
+    special-case blocked every vehicle from the same numeric gate.
     """
     g = _merge(DEFAULT_GATES["av2"], (gates or {}).get("av2"))
-    return (
-        str(entry.get("cat", "")).upper() == "DOG"
-        and float(entry.get("az_span_deg", 0.0)) >= g["completion_min_az_span_deg"]
-    )
+    return float(entry.get("az_span_deg", 0.0)) >= g["completion_min_az_span_deg"]
