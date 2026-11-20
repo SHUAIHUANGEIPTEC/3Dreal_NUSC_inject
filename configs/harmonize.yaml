@@ -25,6 +25,10 @@ harmonize:
   ring_outer_px: 12
   smooth_window: 11               # temporal moving-average window (anti-flicker)
   lab_channels: [L]               # exposure only; a/b chroma = object identity
+  lab_weights: {L: 1.0, a: 0.0, b: 0.0}  # per-channel strength; raising a/b
+                                   # weight only matters once those channels
+                                   # are listed in lab_channels (partial
+                                   # chroma pull vs full identity loss)
   sigma_clip: [0.7, 1.5]
   poisson_enabled: false
   poisson_pad: 32

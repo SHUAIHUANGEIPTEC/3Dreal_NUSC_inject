@@ -101,6 +101,33 @@ def test_feathered_match_keeps_background():
     np.testing.assert_array_equal(out[ring], img[ring])   # bg untouched
 
 
+def test_apply_params_channel_weights():
+    img, _, _ = _img_with_regions()
+    params = {"L": (1.0, -40.0), "a": (1.0, 25.0)}
+    full = lab_match.apply_params(img, params, None)
+    # weight 0 on a channel = byte-identical channel, others unchanged
+    zero = lab_match.apply_params(img, params, None,
+                                  weights={"L": 1.0, "a": 0.0})
+    import cv2
+    lab_in = cv2.cvtColor(img, cv2.COLOR_RGB2LAB)
+    lab_z = cv2.cvtColor(zero, cv2.COLOR_RGB2LAB)
+    np.testing.assert_array_equal(lab_z[:, :, 1], lab_in[:, :, 1])  # a kept
+    assert np.abs(lab_z[:, :, 0].astype(int)
+                  - lab_in[:, :, 0].astype(int)).max() > 5           # L moved
+    # weight 1 == unweighted full correction (allow 1 LSB rounding)
+    w1 = lab_match.apply_params(img, params, None,
+                                weights={"L": 1.0, "a": 1.0})
+    assert np.abs(w1.astype(int) - full.astype(int)).max() <= 1
+    # weight 0.5 lands exactly halfway in LAB
+    half = lab_match.apply_params(img, params, None,
+                                  weights={"L": 0.5, "a": 0.5})
+    lab_h = cv2.cvtColor(half, cv2.COLOR_RGB2LAB).astype(float)
+    lab_f = cv2.cvtColor(full, cv2.COLOR_RGB2LAB).astype(float)
+    mid = lab_in[:, :, 0].astype(float) + 0.5 * (lab_f[:, :, 0]
+                                                 - lab_in[:, :, 0].astype(float))
+    np.testing.assert_allclose(lab_h[:, :, 0], mid, atol=1.5)
+
+
 def test_smooth_params_skips_none():
     series = [{"L": (1.0, 0.0)}, None, {"L": (1.0, 10.0)},
               {"L": (1.0, 20.0)}, {"L": (1.0, 30.0)}]

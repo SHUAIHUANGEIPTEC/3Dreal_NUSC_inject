@@ -67,8 +67,11 @@ class CPUHarmonizer:
                     footprint=smap)
 
             # 1) exposure/lightness match of the object onto its surroundings
-            #    (identity-preserving: default L channel only)
-            img = (lab_match.apply_params(raw, params, feather)
+            #    (identity-preserving: default L channel only; lab_weights
+            #    scales each enabled channel's correction, a/b < 1 = partial
+            #    chroma pull)
+            img = (lab_match.apply_params(raw, params, feather,
+                                          weights=cfg.get("lab_weights"))
                    if params is not None else raw.copy())
 
             # 2a) optional full-silhouette Poisson clone — OFF by default:

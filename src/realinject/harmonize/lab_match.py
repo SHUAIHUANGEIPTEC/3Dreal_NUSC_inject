@@ -55,9 +55,17 @@ def compute_params(img_rgb: np.ndarray, target: np.ndarray,
 
 
 def apply_params(img_rgb: np.ndarray, params: dict,
-                 mask: np.ndarray | None) -> np.ndarray:
+                 mask: np.ndarray | None,
+                 weights: dict | None = None) -> np.ndarray:
     """Apply gain/bias for the channels present in `params` (others kept);
     `mask` (H,W) float 0..1 feathers the edit (None = apply everywhere).
+
+    `weights` optionally scales each channel's correction toward the
+    original: out = orig + w * (corrected - orig). Missing channels in
+    `weights` default to 1.0, so None reproduces the unweighted behaviour.
+    A weight of 0 keeps that channel byte-identical — used for a partial
+    chroma pull (a/b < 1) that softens object-vs-scene colour without the
+    full identity loss of matching chroma means.
 
     Mixing happens in LAB space; the LAB->RGB conversion runs exactly once,
     on the final array (mixing LAB-encoded values into RGB is a bug this
@@ -70,7 +78,9 @@ def apply_params(img_rgb: np.ndarray, params: dict,
         if ch not in params:
             continue
         g, b = params[ch]
-        matched[:, :, i] = g * lab[:, :, i] + b
+        w = float(weights.get(ch, 1.0)) if weights else 1.0
+        corrected = g * lab[:, :, i] + b
+        matched[:, :, i] = lab[:, :, i] + w * (corrected - lab[:, :, i])
     if mask is not None:
         m = mask[:, :, None].astype(np.float32)
         matched = lab * (1.0 - m) + matched * m
