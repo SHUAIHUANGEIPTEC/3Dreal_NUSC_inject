@@ -49,8 +49,11 @@ def main(argv: list[str] | None = None) -> int:
               file=sys.stderr)
         return 2
     lib = AssetLibrary.load(manifest)
-    records = lib.passed()
-    log.info("library: %d passed records", len(records))
+    # pass every record: run_completion applies its own per-kind eligibility
+    # (av2 az-wide candidates complete even when the original gates fail —
+    # the proxy's stats are what the rebuild re-evaluates)
+    records = lib.records
+    log.info("library: %d records (%d passed)", len(records), len(lib.passed()))
 
     report = run_completion(
         records, library_root,

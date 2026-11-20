@@ -120,15 +120,20 @@ def run_completion(records: list[AssetRecord], library_root,
     done_realcar = done_av2 = skipped = failed = 0
     details = []
     for rec in records:
-        if not rec.quality.get("passed"):
-            skipped += 1
-            continue
         info = None
         if realcar and rec.kind == "realcar_mesh":
+            # texture/dimension gates can't be fixed by hole-fill — only
+            # passed meshes are worth re-meshing
+            if not rec.quality.get("passed"):
+                skipped += 1
+                continue
             info = complete_realcar(rec, library_root)
             done_realcar += 1 if info else 0
         elif av2_candidates and rec.kind == "av2_cloud" and \
                 rec.completion.get("candidate"):
+            # az-wide candidates complete regardless of gate status: weak
+            # gate stats (n / density) are exactly what the closed proxy
+            # rewrites, and the rebuild re-evaluates the gates on it
             info = complete_av2(rec, library_root, n_samples=n_samples)
             done_av2 += 1 if info else 0
         else:
