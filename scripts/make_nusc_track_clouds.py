@@ -45,6 +45,19 @@ NUSC2AV2 = {
     "human.pedestrian.wheelchair": "WHEELCHAIR",
     "human.pedestrian.personal_mobility": "WHEELED_DEVICE",
     "animal": "DOG",
+    "human.pedestrian.other": "WHEELED_RIDER",
+    "vehicle.truck": "BOX_TRUCK",
+    "vehicle.bus.rigid": "BUS",
+    "vehicle.bus.bendy": "BUS",
+    "vehicle.bicycle": "BICYCLE",
+    "human.pedestrian.adult": "PEDESTRIAN",
+    "human.pedestrian.child": "PEDESTRIAN",
+    "human.pedestrian.construction_worker": "PEDESTRIAN",
+    "human.pedestrian.police_officer": "PEDESTRIAN",
+    "movable_object.trafficcone": "TRAFFIC_CONE",
+    "movable_object.barrier": "BARRIER",
+    "vehicle.construction": "CONSTRUCTION_VEHICLE",
+    "vehicle.trailer": "TRAILER",
 }
 
 

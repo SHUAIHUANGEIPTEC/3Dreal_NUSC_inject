@@ -28,6 +28,16 @@ AV2_CATEGORY_MAP = {
     "WHEELED_RIDER": "human.pedestrian.other",
     "STROLLER": "human.pedestrian.stroller",
     "WHEELCHAIR": "human.pedestrian.wheelchair",
+    # survey classes aggregated from local nuScenes tracks (leaf categories
+    # that exist in this dataset's category.json)
+    "BOX_TRUCK": "vehicle.truck",
+    "BUS": "vehicle.bus.rigid",
+    "BICYCLE": "vehicle.bicycle",
+    "PEDESTRIAN": "human.pedestrian.adult",
+    "TRAFFIC_CONE": "movable_object.trafficcone",
+    "BARRIER": "movable_object.barrier",
+    "CONSTRUCTION_VEHICLE": "vehicle.construction",
+    "TRAILER": "vehicle.trailer",
 }
 FALLBACK_CATEGORY = "movable_object.anomaly"
 
