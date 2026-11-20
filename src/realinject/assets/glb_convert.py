@@ -80,8 +80,15 @@ def load_glb(path: str | Path):
 
 def canon_from_arrays(verts_yup: np.ndarray, faces: np.ndarray,
                       uv: np.ndarray, tex_rgb: np.ndarray | None = None,
-                      vcolors: np.ndarray | None = None) -> tuple[dict, dict]:
-    """Run the canonical transform chain; returns (npz payload, stats)."""
+                      vcolors: np.ndarray | None = None,
+                      size_range: tuple[float, float] | None = None,
+                      ) -> tuple[dict, dict]:
+    """Run the canonical transform chain; returns (npz payload, stats).
+
+    ``size_range`` (min, max) longest-extent prior: if the transformed mesh
+    falls outside it, the whole model is uniformly scaled onto the nearest
+    bound (Objaverse unit chaos — a 1.68-m fire_extinguisher becomes 0.7 m).
+    """
     import trimesh
 
     verts_yup = np.asarray(verts_yup, dtype=float)
@@ -101,6 +108,19 @@ def canon_from_arrays(verts_yup: np.ndarray, faces: np.ndarray,
     verts_b = verts_b - bmin
     bsize = verts_b.max(axis=0)
 
+    scale = 1.0
+    if size_range is not None:
+        longest = float(bsize.max())
+        lo, hi = float(size_range[0]), float(size_range[1])
+        if longest > hi:
+            scale = hi / longest
+        elif longest < lo:
+            scale = lo / longest
+        if scale != 1.0:
+            verts_b = verts_b * scale
+            bmin = bmin * scale
+            bsize = bsize * scale
+
     if tex_rgb is not None:
         colors = sample_texture(tex_rgb, uv)
     else:
@@ -116,12 +136,15 @@ def canon_from_arrays(verts_yup: np.ndarray, faces: np.ndarray,
         "raw_bbox_size": bsize.astype(np.float32),
         "dims_lwh": bsize.astype(np.float32),
         "yaw_rad": np.float32(yaw),
+        # cache marker: ingest re-converts npz written before size priors
+        "size_scale": np.float32(scale),
     }
     stats = {
         "dims_lwh_m": tuple(float(v) for v in bsize),
         "n_verts": int(len(verts_b)),
         "n_faces": int(len(faces)),
         "yaw_deg": float(np.degrees(yaw)),
+        "size_scale": float(scale),
         "texture_std": float(colors.std() * 255.0),
         "texture_black_frac": float(
             (colors.max(axis=1) < 20.0 / 255.0).mean()),
@@ -132,9 +155,18 @@ def canon_from_arrays(verts_yup: np.ndarray, faces: np.ndarray,
 
 
 def glb_to_npz(src: str | Path, out_npz: str | Path) -> dict:
-    """Convert one GLB file; returns stats (canonical_path included)."""
+    """Convert one GLB file; returns stats (canonical_path included).
+
+    Applies the class size prior (``quality.size_range_for_class``) so the
+    cached npz already carries the corrected scale.
+    """
+    from .quality import size_range_for_class
+
+    src = Path(src)
     verts, faces, uv, tex, vcolors = load_glb(src)
-    canon, stats = canon_from_arrays(verts, faces, uv, tex, vcolors)
+    canon, stats = canon_from_arrays(
+        verts, faces, uv, tex, vcolors,
+        size_range=size_range_for_class(src.stem))
     out_npz = Path(out_npz)
     out_npz.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out_npz, **canon)

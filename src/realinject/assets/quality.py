@@ -6,6 +6,8 @@ gates report can explain why e.g. a C-grade car crop was dropped.
 """
 from __future__ import annotations
 
+import re
+
 DEFAULT_GATES: dict = {
     "realcar": {
         "grades": ["A"],
@@ -36,6 +38,53 @@ DEFAULT_GATES: dict = {
         "max_texture_black_frac": 0.05,
     },
 }
+
+#: Real-world longest-extent priors per class (meters), copied from upstream
+#: nusc-inject ``configs/ood_nuscenes.yaml -> size_by_class`` (the table that
+#: keeps a fire_extinguisher from growing to 3 m). ``cone`` /
+#: ``traffic_cone_02`` are local additions — upstream falls them back to the
+#: wide road_facilities group which still admits a 1.8-m cone.
+GLB_SIZE_BY_CLASS: dict[str, tuple[float, float]] = {
+    # non-typical road users
+    "boat": (1.5, 4.0), "canoe": (2.5, 5.0), "golfcart": (2.0, 3.0),
+    "horse_buggy": (2.0, 3.5), "horse_carriage": (2.5, 4.0),
+    "kayak": (2.5, 4.0), "sled": (1.0, 2.5), "snowmobile": (1.5, 2.5),
+    "surfboard": (1.5, 2.5),
+    # construction / industrial
+    "generator": (0.8, 2.5), "lawn_mower": (0.8, 1.8),
+    "plow__farm_equipment": (1.5, 3.5),
+    "tractor__farm_equipment": (2.5, 4.5),
+    # dumped / household
+    "armoire": (1.5, 2.4), "automatic_washer": (0.6, 1.2),
+    "bathtub": (1.5, 2.0), "bed": (1.9, 2.2), "bookcase": (1.5, 2.4),
+    "cabinet": (1.0, 2.2), "plastic_bag": (0.3, 0.8),
+    "refrigerator": (1.4, 2.2), "sink": (0.5, 1.2), "sofa": (1.8, 3.0),
+    "table": (1.0, 2.4), "toilet": (0.5, 0.8),
+    # road facilities
+    "awning": (1.5, 4.0), "bench": (1.2, 2.5), "billboard": (2.0, 4.0),
+    "chair": (0.6, 1.3), "fire_alarm": (0.2, 0.5),
+    "fire_extinguisher": (0.4, 0.7), "fireplug": (0.6, 1.0),
+    "flagpole": (2.0, 4.0), "garbage": (0.3, 0.8),
+    "lamppost": (3.0, 6.0), "mail_slot": (0.2, 0.5),
+    "mailbox__at_home": (0.5, 1.2), "manhole": (0.5, 0.8),
+    "milestone": (0.3, 0.8), "newsstand": (1.0, 2.5),
+    "parking_meter": (0.8, 1.3), "pole": (2.0, 5.0),
+    "postbox__public": (0.9, 1.6), "signboard": (0.5, 1.5),
+    "silo": (2.5, 5.0), "stop_sign": (1.2, 2.2),
+    "street_sign": (1.5, 3.0), "streetlight": (3.0, 6.0),
+    "telephone_booth": (2.0, 3.0), "telephone_pole": (4.0, 8.0),
+    # local extensions (upstream group fallback too wide for these)
+    "cone": (0.3, 0.8), "traffic_cone_02": (0.3, 0.8),
+}
+
+_GLB_CLASS_SUFFIX = re.compile(r"(.+)_\d{3,4}_[0-9A-Za-z]+$")
+
+
+def size_range_for_class(stem: str) -> tuple[float, float] | None:
+    """Longest-extent prior for a GLB stem (``fireplug_2630_<uid>`` -> class)."""
+    m = _GLB_CLASS_SUFFIX.match(stem)
+    cls = m.group(1) if m else stem
+    return GLB_SIZE_BY_CLASS.get(cls)
 
 
 def _merge(base: dict, override: dict | None) -> dict:

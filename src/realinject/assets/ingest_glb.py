@@ -47,8 +47,12 @@ def ingest_glb(assets_root: str | Path, library_root: str | Path,
         out = library_root / "canonical" / "glb" / f"{stem}.npz"
         source_rel = str(glb.relative_to(assets_root))
         try:
-            if (not out.exists()
-                    or glb.stat().st_mtime > out.stat().st_mtime):
+            stale = not out.exists() or glb.stat().st_mtime > out.stat().st_mtime
+            if not stale:
+                with np.load(out) as data:
+                    # npz written before size priors existed must be redone
+                    stale = "size_scale" not in data.files
+            if stale:
                 glb_to_npz(glb, out)
             with np.load(out) as data:
                 canon = {k: data[k] for k in data.files}

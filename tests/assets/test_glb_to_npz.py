@@ -71,3 +71,27 @@ def test_glb_roundtrip(tmp_path):
         assert d["verts"].shape[1] == 3
         assert d["colors"].max() > 0.5      # sampled the warm texture
     assert stats["n_verts"] >= 8
+
+
+def test_size_prior_scales_out_of_range():
+    verts, faces, uv, tex = _box_arrays()          # longest extent = 2.0
+    canon, stats = conv.canon_from_arrays(
+        verts, faces, uv, tex_rgb=tex, size_range=(0.4, 0.7))
+    assert stats["size_scale"] == pytest.approx(0.7 / 2.0)
+    assert float(max(canon["dims_lwh"])) == pytest.approx(0.7, abs=1e-5)
+    # raw bbox scales with the verts (placement math stays consistent)
+    assert float(canon["raw_bbox_size"].max()) == pytest.approx(
+        2.0 * stats["size_scale"], abs=1e-4)
+
+    canon2, stats2 = conv.canon_from_arrays(
+        verts, faces, uv, tex_rgb=tex, size_range=(1.0, 4.0))
+    assert stats2["size_scale"] == 1.0              # in range: untouched
+    assert float(max(canon2["dims_lwh"])) == pytest.approx(2.0, abs=1e-5)
+
+
+def test_size_range_for_class_lookup():
+    from realinject.assets.quality import size_range_for_class
+    assert size_range_for_class("fire_extinguisher_2552_10bfa9d3") == (0.4, 0.7)
+    assert size_range_for_class("cone_2417_10fb864c") == (0.3, 0.8)
+    assert size_range_for_class("fireplug_2633_06917674") == (0.6, 1.0)
+    assert size_range_for_class("British_Postbox") is None
