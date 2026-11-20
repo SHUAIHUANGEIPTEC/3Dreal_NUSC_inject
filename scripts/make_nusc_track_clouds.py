@@ -192,7 +192,11 @@ def main(argv: list[str] | None = None) -> int:
             hit = ((np.abs(local[:, 0]) <= lng / 2 + m)
                    & (np.abs(local[:, 1]) <= wid / 2 + m)
                    & (np.abs(local[:, 2]) <= hgt / 2 + m))
-            if hit.sum() < 20:
+            # per-frame floor: tiny boxes (cone/bike/moto/barrier) rarely see
+            # 20 returns in one sweep — their budget is the full frame chain;
+            # the library gates (n/ density / az) still decide acceptance
+            min_hit = 5 if wid * lng < 2.0 else 10
+            if hit.sum() < min_hit:
                 continue
             pts_all.append(local[hit])
             inten_all.append(np.clip(pts[hit, 3], 0, 255).astype(np.uint8))
