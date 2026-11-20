@@ -115,6 +115,12 @@ def run_sample(cfg: dict, meta, sample_index: int, objects: list,
             raw_bbox=(raw_min, raw_size),
             model_verts=np.asarray(cloud.xyz, dtype=float),
         )
+        # Plan A: frozen tracks carry their creation-frame seat; the contact
+        # check compares against it instead of re-estimating every frame
+        # (ego motion + dynamic scene content drifted the estimate by ~0.25 m)
+        seat = o["placement_cfg"].get("seat_z_global")
+        if seat is not None:
+            gt["seat_z_global"] = float(seat)
         # Re-seat fresh placements on the robust ground estimate: build_gt's
         # fixed percentile floats the object when elevated clutter (parked
         # truck) dominates the search circle. Frozen from_global poses are

@@ -61,6 +61,10 @@ def run_tracking(cfg: dict, meta, records: list, batch_dir: Path,
                         "placement_cfg": {
                             "from_global": t["T"],
                             "ground": t["placement_cfg"].get("ground", {}),
+                            # Plan A: creation-frame seat the frozen-pose
+                            # contact check compares against (no per-frame
+                            # re-estimation against dynamic scene content)
+                            "seat_z_global": t.get("seat"),
                         },
                     })
                 tkeys.append(t["key"])
@@ -100,6 +104,13 @@ def run_tracking(cfg: dict, meta, records: list, batch_dir: Path,
                 if t["T"] is None and t["key"] in ann_keys:
                     gi = ann_keys.index(t["key"])
                     t["T"] = res["gts"][gi]["T_model2global"]
+                    # freeze the creation-frame seat (global z of the anchor
+                    # point at placement time) for later frames' contact check
+                    g0 = res["gts"][gi]
+                    off = g0["placement"]["offset_in_lidar_frame"]
+                    T_l2g = np.array(g0["T_lidar2global"],
+                                     dtype=float).reshape(4, 4)
+                    t["seat"] = float((T_l2g @ [off[0], off[1], off[2], 1.0])[2])
                 if t["key"] not in ann_keys and t["T"] is None:
                     t["terminated"] = True
                     t["end_reason"] = "invisible"

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from realinject.gauss.model import GaussianCloud, identity_quat
 from realinject.gauss.raster_cpu import render_gaussians
@@ -204,6 +205,27 @@ def test_ground_contact_check_in_validate_ext():
     # slight sink within the budget passes (measured worst case was -0.218)
     slight = validate_ext._ground_contact(cfg, [_gt(-1.4)], pts)
     assert slight["evaluable"] and slight["pass"]
+
+    # Plan A: frozen seat — global comparison, ignores the scene estimate
+    # (identity T: bottom_global == bottom_lidar here)
+    def _frozen(bottom_z, seat_z):
+        g = _gt(bottom_z)
+        g["seat_z_global"] = seat_z
+        return g
+
+    on_seat = validate_ext._ground_contact(cfg, [_frozen(-1.2, -1.2)], pts)
+    assert on_seat["evaluable"] and on_seat["pass"]
+    assert on_seat["gap_m"][0] == pytest.approx(0.0, abs=1e-6)
+    # bottom floats clear of the frozen seat (beyond the two-sided budget)
+    float_seat = validate_ext._ground_contact(cfg, [_frozen(-1.2, -1.6)], pts)
+    assert not float_seat["pass"] and float_seat["gap_m"][0] == pytest.approx(0.4)
+    # bottom buried below the frozen seat
+    sunk_seat = validate_ext._ground_contact(cfg, [_frozen(-1.7, -1.2)], pts)
+    assert not sunk_seat["pass"] and sunk_seat["gap_m"][0] == pytest.approx(-0.5)
+    # small float inside the budget still passes (e.g. seat -1.45 -> +0.25)
+    ok_seat = validate_ext._ground_contact(cfg, [_frozen(-1.2, -1.45)], pts)
+    assert ok_seat["pass"] and ok_seat["gap_m"][0] == pytest.approx(0.25)
+
     # no scene points -> not evaluable, not failing
     skipped = validate_ext._ground_contact(cfg, [_gt(-0.2)], None)
     assert not skipped["evaluable"] and skipped["pass"]

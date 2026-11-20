@@ -191,7 +191,11 @@ def _box_corners_global(gts: list) -> np.ndarray:
 
 def _ground_contact(cfg: dict, gts: list,
                     scene_pts: np.ndarray | None) -> dict:
-    """Bbox bottom vs robust local ground, per object (lidar frame).
+    """Bbox bottom vs ground, per object.
+
+    Frozen tracks (``seat_z_global`` present) compare bottom-global against
+    the creation-frame seat — constant across frames. Fresh tracks estimate
+    the ground at the placement anchor (same estimator as the resnap).
 
     |gap| > ground_contact_max_m fails: floats come from build_gt's fixed
     percentile landing on elevated clutter (parked truck); sinks mean the
@@ -208,6 +212,15 @@ def _ground_contact(cfg: dict, gts: list,
 
     gaps = []
     for gt in gts:
+        seat = gt.get("seat_z_global")
+        if seat is not None:
+            # Plan A: frozen tracks compare against their creation-frame
+            # seat (global z) — the per-frame estimate drifted ~0.25 m with
+            # ego motion + dynamic scene content around frozen anchors
+            t_g = np.array(gt["T_model2global"], dtype=float).reshape(4, 4)
+            bottom_g = float(_box_corners(gt, t_g)[:, 2].min())
+            gaps.append(bottom_g - float(seat))
+            continue
         t_m2l = np.array(gt["T_model2lidar"], dtype=float).reshape(4, 4)
         pts_l = _box_corners(gt, t_m2l)
         bottom_z = float(pts_l[:, 2].min())
